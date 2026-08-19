@@ -20,7 +20,9 @@ import {
   locationOutline,
   medicalOutline,
   notificationsOutline,
+  pricetagOutline,
   repeatOutline,
+  searchOutline,
   schoolOutline,
   sparklesOutline,
   trashOutline,
@@ -68,7 +70,13 @@ type ShoppingItem = {
   quantity: string;
   category: string;
   checked: boolean;
+  priceWatch?: PriceWatchSummary | null;
 };
+
+type PriceWatchSummary = { id: number; productId: string; productName: string | null; targetPrice: string | null; bestPrice: string | null; bestChain: string | null; dataDate: string | null };
+type PriceOffer = { chainName: string; minPrice: string; maxPrice: string; minUnitPrice: string; storeCount: number };
+type PriceWatchDetail = { id: number; shoppingItemId: number; productId: string; productName: string; categoryName: string; unit: string; packageSize: string; targetPrice: string | null; notifyOnDrop: boolean; dataDate: string | null; offers: PriceOffer[]; history: Array<{ date: string; minPrice: string }> };
+type PriceSearchResult = { productId: string; productName: string; categoryName: string; unit: string; packageSize: string; bestPrice: string; bestChain: string; chainCount: number; dataDate: string };
 
 type Actor = { id: number; username: string; displayName: string; role: "owner" | "member" };
 type AuthMode = "checking" | "setup" | "login" | "authenticated";
@@ -187,6 +195,11 @@ function weekDates(anchorIso: string) {
 function displayFirstName(actor: Actor | null) {
   const source = actor?.displayName || actor?.username || "Olivér";
   return source.split(/[\s@]/)[0] || "Olivér";
+}
+
+function formatForint(value: string | number | null | undefined) {
+  if (value == null || value === "") return "–";
+  return `${Math.round(Number(value)).toLocaleString("hu-HU")} Ft`;
 }
 
 function initialDraft(): Draft {
@@ -411,6 +424,12 @@ export default function OtthonApp() {
   const [ready, setReady] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [priceItem, setPriceItem] = useState<ShoppingItem | null>(null);
+  const [priceQuery, setPriceQuery] = useState("");
+  const [priceResults, setPriceResults] = useState<PriceSearchResult[]>([]);
+  const [priceWatch, setPriceWatch] = useState<PriceWatchDetail | null>(null);
+  const [targetPrice, setTargetPrice] = useState("");
+  const [priceBusy, setPriceBusy] = useState(false);
 
   const loadHousehold = useCallback(async (silent = false) => {
     if (!silent) setSyncing(true);
@@ -568,6 +587,71 @@ export default function OtthonApp() {
       setToast("A megvásárolt tételek törölve");
     } catch (failure) {
       showFailure(failure);
+    }
+  }
+
+  async function searchPrices(query = priceQuery) {
+    if (query.trim().length < 2) return;
+    setPriceBusy(true);
+    try {
+      const result = await apiRequest<{ results: PriceSearchResult[] }>("GET", undefined, `/api/prices?q=${encodeURIComponent(query.trim())}`);
+      setPriceResults(result.results);
+      if (!result.results.length) setToast("Nem találtam ilyen terméket a GVH listájában");
+    } catch (failure) {
+      showFailure(failure);
+    } finally {
+      setPriceBusy(false);
+    }
+  }
+
+  async function openPriceMonitor(item: ShoppingItem) {
+    setPriceItem(item);
+    setPriceQuery(item.name);
+    setPriceResults([]);
+    setPriceWatch(null);
+    setTargetPrice(item.priceWatch?.targetPrice || "");
+    setPriceBusy(true);
+    try {
+      const result = await apiRequest<{ watch: PriceWatchDetail | null }>("GET", undefined, `/api/prices?shoppingItemId=${item.id}`);
+      setPriceWatch(result.watch);
+      if (result.watch) setTargetPrice(result.watch.targetPrice || "");
+      else await searchPrices(item.name);
+    } catch (failure) {
+      showFailure(failure);
+    } finally {
+      setPriceBusy(false);
+    }
+  }
+
+  async function savePriceWatch(productId: string) {
+    if (!priceItem) return;
+    setPriceBusy(true);
+    try {
+      const result = await apiRequest<{ watch: PriceWatchDetail }>("POST", { shoppingItemId: priceItem.id, productId, targetPrice }, "/api/prices");
+      setPriceWatch(result.watch);
+      setPriceResults([]);
+      await loadHousehold(true);
+      setToast("Árfigyelés bekapcsolva");
+    } catch (failure) {
+      showFailure(failure);
+    } finally {
+      setPriceBusy(false);
+    }
+  }
+
+  async function removePriceWatch() {
+    if (!priceItem) return;
+    setPriceBusy(true);
+    try {
+      await apiRequest("DELETE", { shoppingItemId: priceItem.id }, "/api/prices");
+      await loadHousehold(true);
+      setPriceItem(null);
+      setPriceWatch(null);
+      setToast("Árfigyelés kikapcsolva");
+    } catch (failure) {
+      showFailure(failure);
+    } finally {
+      setPriceBusy(false);
     }
   }
 
@@ -828,6 +912,7 @@ export default function OtthonApp() {
                 <ShoppingView
                   groups={shoppingGroups} remaining={remainingShopping} onToggle={toggleShopping}
                   onEdit={openEditShopping}
+                  onPrice={openPriceMonitor}
                   onDelete={(id, title) => deleteItem("shopping", id, title)}
                   onClear={clearCompletedShopping} onQuickAdd={() => openAdd("shopping")}
                 />
@@ -916,6 +1001,27 @@ export default function OtthonApp() {
                 <button type="submit" className="primary-button" disabled={!draft.title.trim() || saving}><IonIcon icon={editingItemId ? checkmark : add} /> {saving ? "Mentés…" : editingItemId ? "Módosítások mentése" : "Hozzáadás"}</button>
                 {editingItemId && <button type="button" className="sheet-delete-button" disabled={saving} onClick={() => void deleteEditingItem()}><IonIcon icon={trashOutline} /> {addMode === "event" ? "Esemény" : addMode === "chore" ? "Feladat" : "Tétel"} törlése</button>}
               </form>
+            </section>
+          </div>
+        )}
+
+        {priceItem && (
+          <div className="sheet-backdrop" role="presentation" onMouseDown={() => !priceBusy && setPriceItem(null)}>
+            <section className="add-sheet price-sheet" role="dialog" aria-modal="true" aria-labelledby="price-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="sheet-handle" />
+              <div className="sheet-heading"><div><span className="eyebrow">GVH Árfigyelő</span><h2 id="price-title">{priceItem.name}</h2></div><button type="button" className="icon-button subtle" onClick={() => setPriceItem(null)} aria-label="Bezárás"><IonIcon icon={close} /></button></div>
+              {priceWatch ? <>
+                <div className="tracked-product"><IonIcon icon={pricetagOutline} /><div><strong>{priceWatch.productName}</strong><span>{priceWatch.categoryName} · {priceWatch.offers.length} üzletlánc</span></div></div>
+                <div className="price-offers">{priceWatch.offers.map((offer, index) => <div className={index === 0 ? "price-offer best" : "price-offer"} key={offer.chainName}><div><strong>{offer.chainName}</strong><span>{offer.storeCount} boltban · {formatForint(offer.minUnitPrice)}/{priceWatch.unit}</span></div><strong>{formatForint(offer.minPrice)}</strong></div>)}</div>
+                <label className="price-target"><span>Célár – ha ezt eléri, szólunk</span><div><input inputMode="decimal" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="pl. 5999" /><button type="button" onClick={() => void savePriceWatch(priceWatch.productId)} disabled={priceBusy}>Mentés</button></div></label>
+                {priceWatch.history.length > 1 && <div className="price-history"><span>Legutóbbi {priceWatch.history.length} nap</span><div>{priceWatch.history.map((point) => <i key={point.date} title={`${point.date}: ${formatForint(point.minPrice)}`} style={{ height: `${Math.max(12, Math.min(100, 100 - (Number(point.minPrice) / Math.max(...priceWatch.history.map((item) => Number(item.minPrice))) - .5) * 120))}%` }} />)}</div></div>}
+                <button type="button" className="sheet-delete-button" onClick={() => void removePriceWatch()} disabled={priceBusy}><IonIcon icon={trashOutline} /> Árfigyelés kikapcsolása</button>
+              </> : <>
+                <div className="price-search"><IonIcon icon={searchOutline} /><input value={priceQuery} onChange={(event) => setPriceQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchPrices(); } }} placeholder="Termék vagy kategória" /><button type="button" onClick={() => void searchPrices()} disabled={priceBusy || priceQuery.trim().length < 2}>Keresés</button></div>
+                <label className="price-target"><span>Opcionális célár</span><input inputMode="decimal" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="pl. 5999" /></label>
+                <div className="price-results">{priceResults.map((result) => <button type="button" key={result.productId} onClick={() => void savePriceWatch(result.productId)} disabled={priceBusy}><div><strong>{result.productName}</strong><span>{result.categoryName} · {result.chainCount} lánc</span></div><strong>{formatForint(result.bestPrice)}<small>{result.bestChain}</small></strong></button>)}</div>
+                {priceBusy && <div className="price-loading"><span className="loading-orb" />Árak keresése…</div>}
+              </>}
             </section>
           </div>
         )}
@@ -1304,7 +1410,7 @@ function ChoresView({ actor, familyMembers, chores, progress, onToggle, onClaim,
   );
 }
 
-function ShoppingView({ groups, remaining, onToggle, onEdit, onDelete, onClear, onQuickAdd }: { groups: Record<string, ShoppingItem[]>; remaining: number; onToggle: (id: number) => void; onEdit: (item: ShoppingItem) => void; onDelete: (id: number, title: string) => void; onClear: () => void; onQuickAdd: () => void }) {
+function ShoppingView({ groups, remaining, onToggle, onEdit, onPrice, onDelete, onClear, onQuickAdd }: { groups: Record<string, ShoppingItem[]>; remaining: number; onToggle: (id: number) => void; onEdit: (item: ShoppingItem) => void; onPrice: (item: ShoppingItem) => void; onDelete: (id: number, title: string) => void; onClear: () => void; onQuickAdd: () => void }) {
   const allItems = Object.values(groups).flat();
   return (
     <div className="screen">
@@ -1315,8 +1421,8 @@ function ShoppingView({ groups, remaining, onToggle, onEdit, onDelete, onClear, 
         {Object.entries(groups).map(([category, items]) => <div className="shopping-group" key={category}>
           <h2>{category}<span>{items.filter((item) => !item.checked).length}</span></h2>
           {items.map((item) => <div className={item.checked ? "shopping-row checked" : "shopping-row"} key={item.id}>
-            <button type="button" className="shopping-toggle" onClick={() => onToggle(item.id)}><span className="shop-check"><IonIcon icon={checkmark} /></span><strong>{item.name}</strong><span>{item.quantity}</span></button>
-            <div className="item-actions"><button type="button" className="edit-item" onClick={() => onEdit(item)} aria-label={`${item.name} szerkesztése`}><IonIcon icon={createOutline} /></button><button type="button" className="delete-item" onClick={() => onDelete(item.id, item.name)} aria-label={`${item.name} törlése`}><IonIcon icon={trashOutline} /></button></div>
+            <button type="button" className="shopping-toggle" onClick={() => onToggle(item.id)}><span className="shop-check"><IonIcon icon={checkmark} /></span><span className="shopping-name"><strong>{item.name}</strong>{item.priceWatch?.bestPrice && <small><IonIcon icon={pricetagOutline} /> {formatForint(item.priceWatch.bestPrice)} · {item.priceWatch.bestChain}</small>}</span><span>{item.quantity}</span></button>
+            <div className="item-actions"><button type="button" className={item.priceWatch ? "price-item active" : "price-item"} onClick={() => onPrice(item)} aria-label={`${item.name} árfigyelése`}><IonIcon icon={pricetagOutline} /></button><button type="button" className="edit-item" onClick={() => onEdit(item)} aria-label={`${item.name} szerkesztése`}><IonIcon icon={createOutline} /></button><button type="button" className="delete-item" onClick={() => onDelete(item.id, item.name)} aria-label={`${item.name} törlése`}><IonIcon icon={trashOutline} /></button></div>
           </div>)}
         </div>)}
       </section>

@@ -267,11 +267,54 @@ ion-app { --background: transparent; background: transparent; }
 .shopping-row { width: 100%; display: grid; grid-template-columns: 1fr 40px; align-items: center; border-top: 1px solid var(--line); background: transparent; text-align: left; }
 .shopping-toggle { width: 100%; min-width: 0; display: grid; grid-template-columns: 27px 1fr auto; align-items: center; gap: 10px; padding: 12px 7px 12px 15px; border: 0; background: transparent; text-align: left; }
 .shopping-row strong { font-size: 12px; }
+.shopping-name { min-width: 0; }
+.shopping-name strong, .shopping-name small { display: block; }
+.shopping-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shopping-name small { margin-top: 3px; color: #2d927d; font-size: 8px; font-weight: 720; }
+.shopping-name small ion-icon { vertical-align: -1px; }
 .shopping-toggle > span:last-child { color: var(--muted); font-size: 10px; }
 .shopping-row.checked { color: #a8a2b2; }
 .shopping-row.checked strong { text-decoration: line-through; }
 .shop-check { width: 22px; height: 22px; }
 .clear-button { width: 100%; margin-top: 19px; padding: 13px; border: 0; border-radius: 17px; color: #a34f4f; background: var(--coral-soft); font-size: 11px; font-weight: 750; }
+.price-item { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 11px; color: #aaa3b8; background: transparent; }
+.price-item.active { color: #188a6f; background: var(--mint-soft); }
+.price-item ion-icon { font-size: 17px; }
+
+.price-sheet { max-height: min(91dvh, 800px); }
+.tracked-product { display: flex; align-items: center; gap: 12px; margin: 18px 0 13px; padding: 14px; border-radius: 19px; background: linear-gradient(135deg, #eafaf5, #f5fffb); }
+.tracked-product > ion-icon { flex: 0 0 auto; padding: 10px; border-radius: 13px; color: #188a6f; background: #d8f4eb; font-size: 21px; }
+.tracked-product strong, .tracked-product span { display: block; }
+.tracked-product strong { font-size: 12px; line-height: 1.35; }
+.tracked-product span { margin-top: 4px; color: var(--muted); font-size: 9px; }
+.price-offers { display: grid; gap: 7px; }
+.price-offer { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 16px; }
+.price-offer.best { border-color: #bce8db; background: #f0fbf7; }
+.price-offer div strong, .price-offer div span { display: block; }
+.price-offer div strong { font-size: 11px; }
+.price-offer div span { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.price-offer > strong { flex: 0 0 auto; color: #188a6f; font-size: 13px; }
+.price-target { display: block; margin-top: 15px; color: var(--muted); font-size: 9px; font-weight: 720; }
+.price-target > span { display: block; margin: 0 0 7px 3px; }
+.price-target > div { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+.price-target input, .price-search input { width: 100%; min-width: 0; padding: 12px 13px; border: 1px solid #e2ddea; border-radius: 14px; outline: 0; background: #fbfafd; font-size: 15px; }
+.price-target button, .price-search button { padding: 0 14px; border: 0; border-radius: 13px; color: #fff; background: var(--violet); font-size: 9px; font-weight: 760; }
+.price-target button:disabled, .price-search button:disabled { opacity: .45; }
+.price-search { display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; align-items: center; gap: 7px; margin-top: 18px; }
+.price-search > ion-icon { color: var(--violet); font-size: 20px; }
+.price-results { display: grid; gap: 7px; margin-top: 13px; }
+.price-results > button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: #fff; text-align: left; }
+.price-results > button > div { min-width: 0; }
+.price-results strong, .price-results span, .price-results small { display: block; }
+.price-results > button > div strong { overflow: hidden; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; }
+.price-results span, .price-results small { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.price-results > button > strong { flex: 0 0 auto; color: #188a6f; font-size: 11px; text-align: right; }
+.price-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 24px; color: var(--muted); font-size: 10px; }
+.price-loading .loading-orb { width: 24px; height: 24px; border-width: 3px; }
+.price-history { margin-top: 15px; padding: 12px; border-radius: 16px; background: #f8f6fb; }
+.price-history > span { display: block; margin-bottom: 9px; color: var(--muted); font-size: 8px; font-weight: 720; }
+.price-history > div { height: 54px; display: flex; align-items: flex-end; gap: 3px; }
+.price-history i { flex: 1; min-width: 3px; border-radius: 4px 4px 1px 1px; background: linear-gradient(#8d72ff, #6545e6); }
 
 .sheet-backdrop { position: fixed; z-index: 50; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding: 12px 12px max(12px, env(safe-area-inset-bottom)); background: rgba(27,21,48,.38); backdrop-filter: blur(6px); animation: fade-in .18s ease both; }
 @keyframes fade-in { from { opacity: 0; } }

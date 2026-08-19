@@ -20,6 +20,16 @@ test("az emlékeztető külön, befejeződő cron feladat", async () => {
   assert.equal(config.deploy.restartPolicyType, "NEVER");
 });
 
+test("a cron az események mellett a GVH napi árlistát is feldolgozza", async () => {
+  const packageJson = await json("package.json");
+  assert.equal(packageJson.scripts["reminders:send"], "node scripts/run-jobs.mjs");
+  assert.equal(packageJson.scripts["prices:import"], "node scripts/import-price-data.mjs");
+  const importer = await readFile(new URL("../scripts/import-price-data.mjs", import.meta.url), "utf8");
+  assert.match(importer, /arfigyelo_napi_termekadatok\.xlsx/);
+  assert.match(importer, /price_watch_history/);
+  assert.match(importer, /05:15/);
+});
+
 test("a példakörnyezet nem tartalmaz valódi titkot", async () => {
   const example = await readFile(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(example, /DATABASE_URL=/);

@@ -4,7 +4,9 @@ import {
   date,
   index,
   integer,
+  numeric,
   pgTable,
+  primaryKey,
   serial,
   text,
   time,
@@ -96,6 +98,66 @@ export const shoppingItems = pgTable("shopping_items", {
   checked: boolean("checked").notNull().default(false),
   createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const priceCatalog = pgTable(
+  "price_catalog",
+  {
+    productId: text("product_id").notNull(),
+    productName: text("product_name").notNull(),
+    categoryId: text("category_id").notNull(),
+    categoryName: text("category_name").notNull(),
+    chainName: text("chain_name").notNull(),
+    unit: text("unit").notNull(),
+    packageSize: numeric("package_size", { precision: 14, scale: 4 }).notNull(),
+    minPrice: numeric("min_price", { precision: 14, scale: 4 }).notNull(),
+    maxPrice: numeric("max_price", { precision: 14, scale: 4 }).notNull(),
+    minUnitPrice: numeric("min_unit_price", { precision: 14, scale: 4 }).notNull(),
+    maxUnitPrice: numeric("max_unit_price", { precision: 14, scale: 4 }).notNull(),
+    storeCount: integer("store_count").notNull(),
+    totalStores: integer("total_stores").notNull(),
+    dataDate: date("data_date", { mode: "string" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.productId, table.chainName] }),
+    index("price_catalog_name_idx").on(table.productName),
+    index("price_catalog_category_idx").on(table.categoryName),
+  ],
+);
+
+export const priceWatches = pgTable(
+  "price_watches",
+  {
+    id: serial("id").primaryKey(),
+    shoppingItemId: integer("shopping_item_id").notNull().references(() => shoppingItems.id, { onDelete: "cascade" }),
+    productId: text("product_id").notNull(),
+    targetPrice: numeric("target_price", { precision: 14, scale: 2 }),
+    notifyOnDrop: boolean("notify_on_drop").notNull().default(true),
+    lastNotifiedPrice: numeric("last_notified_price", { precision: 14, scale: 2 }),
+    createdBy: integer("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("price_watches_shopping_item_idx").on(table.shoppingItemId)],
+);
+
+export const priceWatchHistory = pgTable(
+  "price_watch_history",
+  {
+    watchId: integer("watch_id").notNull().references(() => priceWatches.id, { onDelete: "cascade" }),
+    observedOn: date("observed_on", { mode: "string" }).notNull(),
+    chainName: text("chain_name").notNull(),
+    minPrice: numeric("min_price", { precision: 14, scale: 4 }).notNull(),
+    minUnitPrice: numeric("min_unit_price", { precision: 14, scale: 4 }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.watchId, table.observedOn, table.chainName] })],
+);
+
+export const jobState = pgTable("job_state", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -41,6 +41,15 @@ type ShoppingRow = {
   quantity: string;
   category: string;
   checked: boolean;
+  priceWatch: {
+    id: number;
+    productId: string;
+    productName: string | null;
+    targetPrice: string | null;
+    bestPrice: string | null;
+    bestChain: string | null;
+    dataDate: string | null;
+  } | null;
 };
 
 const tones = ["violet", "blue", "coral", "mint", "orange", "green", "pink", "yellow"];
@@ -118,8 +127,26 @@ export async function GET(request: NextRequest) {
         FROM chores ORDER BY done ASC, id DESC
       ` as unknown as Promise<ChoreRow[]>,
       sql`
-        SELECT id, name, quantity, category, checked
-        FROM shopping_items ORDER BY checked ASC, id DESC
+        SELECT s.id, s.name, s.quantity, s.category, s.checked,
+          CASE WHEN w.id IS NULL THEN NULL ELSE json_build_object(
+            'id', w.id,
+            'productId', w.product_id,
+            'productName', best.product_name,
+            'targetPrice', w.target_price,
+            'bestPrice', best.min_price,
+            'bestChain', best.chain_name,
+            'dataDate', best.data_date
+          ) END AS "priceWatch"
+        FROM shopping_items s
+        LEFT JOIN price_watches w ON w.shopping_item_id = s.id
+        LEFT JOIN LATERAL (
+          SELECT product_name, min_price, chain_name, data_date
+          FROM price_catalog
+          WHERE product_id = w.product_id
+          ORDER BY min_price::numeric ASC, chain_name ASC
+          LIMIT 1
+        ) best ON true
+        ORDER BY s.checked ASC, s.id DESC
       ` as unknown as Promise<ShoppingRow[]>,
       sql`
         SELECT id, name, tone, member_type AS "memberType", sort_order AS "sortOrder"
