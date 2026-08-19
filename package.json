@@ -1,0 +1,45 @@
+{
+  "name": "otthon-app",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0 <25"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && node --test tests/*.test.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "vapid:generate": "node scripts/generate-vapid.mjs",
+    "reminders:send": "node scripts/send-reminders.mjs"
+  },
+  "dependencies": {
+    "@ionic/react": "^8.8.18",
+    "drizzle-orm": "0.45.2",
+    "ionicons": "^8.1.0",
+    "next": "16.2.6",
+    "postgres": "^3.4.7",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/web-push": "^3.6.4",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "sharp": "^0.35.3",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3"
+  },
+  "type": "module",
+  "displayName": "Otthon"
+}
