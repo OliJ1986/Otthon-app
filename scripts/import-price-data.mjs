@@ -71,12 +71,12 @@ async function sendAlerts(previousPrices, dataDate) {
   const watches = await sql`
     SELECT w.id, w.created_by AS "userId", w.target_price AS "targetPrice",
       w.notify_on_drop AS "notifyOnDrop", w.last_notified_price AS "lastNotifiedPrice",
-      pc.product_name AS "productName", pc.chain_name AS "chainName", pc.min_price AS "bestPrice"
+      pc.product_name AS "productName", pc.chain_name AS "chainName", pc.max_price AS "bestPrice"
     FROM price_watches w
     JOIN LATERAL (
-      SELECT product_name, chain_name, min_price
+      SELECT product_name, chain_name, max_price
       FROM price_catalog WHERE product_id = w.product_id
-      ORDER BY min_price::numeric ASC, chain_name ASC LIMIT 1
+      ORDER BY max_price::numeric ASC, chain_name ASC LIMIT 1
     ) pc ON true
   `;
   const publicKey = process.env.VAPID_PUBLIC_KEY;
@@ -127,6 +127,19 @@ async function main() {
     console.log("Árimport kihagyva: Budapesten még nincs 05:15.");
     return;
   }
+  // A korábbi verzió minimumárat mentett ugyanebbe a történeti mezőbe.
+  // Az aktuális katalógusból helyreigazítjuk, így a grafikon már az első naptól
+  // ugyanazt a konzervatív maximumár-logikát követi.
+  await sql`
+    UPDATE price_watch_history history SET
+      min_price = catalog.max_price,
+      min_unit_price = catalog.max_unit_price
+    FROM price_watches watch, price_catalog catalog
+    WHERE history.watch_id = watch.id
+      AND catalog.product_id = watch.product_id
+      AND history.chain_name = catalog.chain_name
+      AND history.observed_on = catalog.data_date
+  `;
   const state = await sql`SELECT value FROM job_state WHERE key = 'gvh_price_import' LIMIT 1`;
   if (!force && state[0]?.value === now.date) {
     console.log(`Árimport már elkészült erre a napra: ${now.date}`);
@@ -134,7 +147,7 @@ async function main() {
   }
 
   const previousRows = await sql`
-    SELECT w.id, min(pc.min_price::numeric) AS price
+    SELECT w.id, min(pc.max_price::numeric) AS price
     FROM price_watches w LEFT JOIN price_catalog pc ON pc.product_id = w.product_id
     GROUP BY w.id
   `;
@@ -165,7 +178,7 @@ async function main() {
     `;
     await tx`
       INSERT INTO price_watch_history (watch_id, observed_on, chain_name, min_price, min_unit_price)
-      SELECT w.id, pc.data_date, pc.chain_name, pc.min_price, pc.min_unit_price
+      SELECT w.id, pc.data_date, pc.chain_name, pc.max_price, pc.max_unit_price
       FROM price_watches w JOIN price_catalog pc ON pc.product_id = w.product_id
       ON CONFLICT (watch_id, observed_on, chain_name) DO UPDATE SET
         min_price = excluded.min_price, min_unit_price = excluded.min_unit_price

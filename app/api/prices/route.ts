@@ -39,20 +39,19 @@ async function watchDetails(shoppingItemId: number) {
         min(pc.unit) AS unit, min(pc.package_size) AS package_size, max(pc.data_date) AS data_date,
         json_agg(json_build_object(
           'chainName', pc.chain_name,
-          'minPrice', pc.min_price,
           'maxPrice', pc.max_price,
-          'minUnitPrice', pc.min_unit_price,
+          'maxUnitPrice', pc.max_unit_price,
           'storeCount', pc.store_count
-        ) ORDER BY pc.min_price::numeric ASC, pc.chain_name ASC) AS offers
+        ) ORDER BY pc.max_price::numeric ASC, pc.chain_name ASC) AS offers
       FROM price_catalog pc WHERE pc.product_id = w.product_id
     ) product ON true
     LEFT JOIN LATERAL (
       SELECT json_agg(json_build_object(
         'date', daily.observed_on,
-        'minPrice', daily.min_price
+        'maxPrice', daily.max_price
       ) ORDER BY daily.observed_on ASC) AS points
       FROM (
-        SELECT observed_on, min(min_price::numeric) AS min_price
+        SELECT observed_on, min(min_price::numeric) AS max_price
         FROM price_watch_history
         WHERE watch_id = w.id
         GROUP BY observed_on
@@ -86,7 +85,7 @@ export async function GET(request: NextRequest) {
     const results = await sql`
       WITH matches AS (
         SELECT *, row_number() OVER (
-          PARTITION BY product_id ORDER BY min_price::numeric ASC, chain_name ASC
+          PARTITION BY product_id ORDER BY max_price::numeric ASC, chain_name ASC
         ) AS price_rank
         FROM price_catalog
         WHERE translate(lower(product_name), 'áéíóöőúüű', 'aeiooouuu') LIKE ${search}
@@ -97,13 +96,13 @@ export async function GET(request: NextRequest) {
         max(category_name) FILTER (WHERE price_rank = 1) AS "categoryName",
         max(unit) FILTER (WHERE price_rank = 1) AS unit,
         max(package_size) FILTER (WHERE price_rank = 1) AS "packageSize",
-        min(min_price::numeric) AS "bestPrice",
+        min(max_price::numeric) AS "bestPrice",
         max(chain_name) FILTER (WHERE price_rank = 1) AS "bestChain",
         count(*)::int AS "chainCount",
         max(data_date) AS "dataDate"
       FROM matches
       GROUP BY product_id
-      ORDER BY min(min_price::numeric) ASC, max(product_name) ASC
+      ORDER BY min(max_price::numeric) ASC, max(product_name) ASC
       LIMIT 30
     `;
     return NextResponse.json({ results });

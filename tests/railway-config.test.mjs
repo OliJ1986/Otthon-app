@@ -32,6 +32,18 @@ test("a cron az események mellett a GVH napi árlistát is feldolgozza", async 
   assert.match(instrumentation, /15 \* 60_000/);
 });
 
+test("az árfigyelő konzervatívan a lánconkénti maximumárral számol", async () => {
+  const importer = await readFile(new URL("../scripts/import-price-data.mjs", import.meta.url), "utf8");
+  const priceApi = await readFile(new URL("../app/api/prices/route.ts", import.meta.url), "utf8");
+  const householdApi = await readFile(new URL("../app/api/household/route.ts", import.meta.url), "utf8");
+  assert.match(importer, /min\(pc\.max_price::numeric\) AS price/);
+  assert.match(importer, /ORDER BY max_price::numeric ASC/);
+  assert.match(importer, /pc\.max_price, pc\.max_unit_price/);
+  assert.match(priceApi, /min\(max_price::numeric\) AS "bestPrice"/);
+  assert.match(priceApi, /ORDER BY pc\.max_price::numeric ASC/);
+  assert.match(householdApi, /ORDER BY max_price::numeric ASC/);
+});
+
 test("a példakörnyezet nem tartalmaz valódi titkot", async () => {
   const example = await readFile(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(example, /DATABASE_URL=/);

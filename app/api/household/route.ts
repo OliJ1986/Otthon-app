@@ -133,17 +133,17 @@ export async function GET(request: NextRequest) {
             'productId', w.product_id,
             'productName', best.product_name,
             'targetPrice', w.target_price,
-            'bestPrice', best.min_price,
+            'bestPrice', best.max_price,
             'bestChain', best.chain_name,
             'dataDate', best.data_date
           ) END AS "priceWatch"
         FROM shopping_items s
         LEFT JOIN price_watches w ON w.shopping_item_id = s.id
         LEFT JOIN LATERAL (
-          SELECT product_name, min_price, chain_name, data_date
+          SELECT product_name, max_price, chain_name, data_date
           FROM price_catalog
           WHERE product_id = w.product_id
-          ORDER BY min_price::numeric ASC, chain_name ASC
+          ORDER BY max_price::numeric ASC, chain_name ASC
           LIMIT 1
         ) best ON true
         ORDER BY s.checked ASC, s.id DESC
