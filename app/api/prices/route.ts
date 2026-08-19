@@ -77,6 +77,42 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const barcode = (request.nextUrl.searchParams.get("barcode") || "").trim().slice(0, 40);
+  if (barcode) {
+    if (!/^[0-9]{6,18}$/.test(barcode)) return invalid("A vonalkód nem érvényes.");
+    try {
+      const strippedBarcode = barcode.replace(/^0+/, "") || "0";
+      const results = await getSql()`
+        WITH matches AS (
+          SELECT *, row_number() OVER (
+            PARTITION BY product_id ORDER BY max_price::numeric ASC, chain_name ASC
+          ) AS price_rank
+          FROM price_catalog
+          WHERE product_id = ${barcode}
+            OR (product_id ~ '^[0-9]+$' AND (trim(leading '0' from product_id) = ${strippedBarcode}))
+        )
+        SELECT product_id AS "productId",
+          max(product_name) FILTER (WHERE price_rank = 1) AS "productName",
+          max(category_name) FILTER (WHERE price_rank = 1) AS "categoryName",
+          max(unit) FILTER (WHERE price_rank = 1) AS unit,
+          max(package_size) FILTER (WHERE price_rank = 1) AS "packageSize",
+          min(max_price::numeric) AS "bestPrice",
+          max(chain_name) FILTER (WHERE price_rank = 1) AS "bestChain",
+          count(*)::int AS "chainCount",
+          max(data_date) AS "dataDate",
+          min(CASE WHEN product_id = ${barcode} THEN 0 ELSE 1 END)::int AS "matchRank"
+        FROM matches
+        GROUP BY product_id
+        ORDER BY min(CASE WHEN product_id = ${barcode} THEN 0 ELSE 1 END),
+          min(max_price::numeric), max(product_name)
+        LIMIT 10
+      `;
+      return NextResponse.json({ results });
+    } catch (error) {
+      return serverError(error);
+    }
+  }
+
   const query = (request.nextUrl.searchParams.get("q") || "").trim().slice(0, 100);
   if (query.length < 2) return NextResponse.json({ results: [] });
   try {
@@ -116,18 +152,60 @@ export async function POST(request: NextRequest) {
   const actor = await getSessionUser(request);
   if (!actor) return unauthorized();
   const payload = await request.json().catch(() => null) as Record<string, unknown> | null;
-  const shoppingItemId = Number(payload?.shoppingItemId);
   const productId = typeof payload?.productId === "string" ? payload.productId.trim().slice(0, 40) : "";
   const targetNumber = payload?.targetPrice === "" || payload?.targetPrice == null
     ? null
     : Number(String(payload.targetPrice).replace(",", "."));
-  if (!Number.isInteger(shoppingItemId) || shoppingItemId < 1 || !productId) return invalid("Válassz egy terméket.");
+  if (!productId) return invalid("Válassz egy terméket.");
   if (targetNumber !== null && (!Number.isFinite(targetNumber) || targetNumber <= 0 || targetNumber > 10_000_000)) {
     return invalid("A célár érvénytelen.");
   }
 
   try {
     const sql = getSql();
+    if (payload?.action === "addToShopping") {
+      const result = await sql.begin(async (tx) => {
+        const products = await tx`
+          SELECT product_id AS "productId", product_name AS "productName",
+            category_name AS "categoryName", unit, package_size AS "packageSize",
+            max_price AS "bestPrice", chain_name AS "bestChain", data_date AS "dataDate"
+          FROM price_catalog
+          WHERE product_id = ${productId}
+          ORDER BY max_price::numeric ASC, chain_name ASC
+          LIMIT 1
+        `;
+        const product = products[0];
+        if (!product) return null;
+        const quantity = `1 × ${product.packageSize} ${product.unit}`.slice(0, 40);
+        const items = await tx`
+          INSERT INTO shopping_items (name, quantity, category, created_by)
+          VALUES (${product.productName}, ${quantity}, ${product.categoryName || "Egyéb"}, ${actor.id})
+          RETURNING id, name, quantity, category, checked
+        `;
+        const watches = await tx`
+          INSERT INTO price_watches (shopping_item_id, product_id, target_price, created_by)
+          VALUES (${items[0].id}, ${productId}, ${targetNumber}, ${actor.id})
+          RETURNING id
+        `;
+        return {
+          ...items[0],
+          priceWatch: {
+            id: watches[0].id,
+            productId,
+            productName: product.productName,
+            targetPrice: targetNumber,
+            bestPrice: product.bestPrice,
+            bestChain: product.bestChain,
+            dataDate: product.dataDate,
+          },
+        };
+      });
+      if (!result) return NextResponse.json({ error: "A beolvasott termék már nem található." }, { status: 404 });
+      return NextResponse.json({ record: result }, { status: 201 });
+    }
+
+    const shoppingItemId = Number(payload?.shoppingItemId);
+    if (!Number.isInteger(shoppingItemId) || shoppingItemId < 1) return invalid("Érvénytelen bevásárlási tétel.");
     const [item, product] = await Promise.all([
       sql`SELECT id FROM shopping_items WHERE id = ${shoppingItemId} LIMIT 1`,
       sql`SELECT product_id FROM price_catalog WHERE product_id = ${productId} LIMIT 1`,

@@ -44,6 +44,20 @@ test("az árfigyelő konzervatívan a lánconkénti maximumárral számol", asyn
   assert.match(householdApi, /ORDER BY max_price::numeric ASC/);
 });
 
+test("a vonalkód egy lépésben terméket és árfigyelést hoz létre", async () => {
+  const packageJson = await json("package.json");
+  const priceApi = await readFile(new URL("../app/api/prices/route.ts", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app/OtthonApp.tsx", import.meta.url), "utf8");
+  assert.match(packageJson.dependencies["@zxing/browser"], /^\^0\.1\./);
+  assert.match(priceApi, /searchParams\.get\("barcode"\)/);
+  assert.match(priceApi, /trim\(leading '0' from product_id\)/);
+  assert.match(priceApi, /payload\?\.action === "addToShopping"/);
+  assert.match(priceApi, /INSERT INTO shopping_items/);
+  assert.match(priceApi, /INSERT INTO price_watches/);
+  assert.match(app, /BarcodeFormat\.EAN_13/);
+  assert.match(app, /facingMode: \{ ideal: "environment" \}/);
+});
+
 test("a példakörnyezet nem tartalmaz valódi titkot", async () => {
   const example = await readFile(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(example, /DATABASE_URL=/);

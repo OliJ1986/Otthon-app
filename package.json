@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@ionic/react": "^8.8.18",
+    "@zxing/browser": "^0.1.5",
     "drizzle-orm": "0.45.2",
     "ionicons": "^8.1.0",
     "next": "16.2.6",

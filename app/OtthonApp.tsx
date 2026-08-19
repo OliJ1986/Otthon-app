@@ -1,10 +1,11 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IonApp, IonIcon, setupIonicReact } from "@ionic/react";
 import {
   add,
   bagHandleOutline,
+  barcodeOutline,
   calendarClearOutline,
   carOutline,
   cartOutline,
@@ -430,6 +431,11 @@ export default function OtthonApp() {
   const [priceWatch, setPriceWatch] = useState<PriceWatchDetail | null>(null);
   const [targetPrice, setTargetPrice] = useState("");
   const [priceBusy, setPriceBusy] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanCode, setScanCode] = useState("");
+  const [scanResults, setScanResults] = useState<PriceSearchResult[]>([]);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanError, setScanError] = useState("");
 
   const loadHousehold = useCallback(async (silent = false) => {
     if (!silent) setSyncing(true);
@@ -588,6 +594,65 @@ export default function OtthonApp() {
     } catch (failure) {
       showFailure(failure);
     }
+  }
+
+  function openBarcodeScanner() {
+    setScanCode("");
+    setScanResults([]);
+    setScanError("");
+    setScanBusy(false);
+    setScannerOpen(true);
+  }
+
+  const handleBarcodeDetected = useCallback(async (code: string) => {
+    setScanCode(code);
+    setScanBusy(true);
+    setScanError("");
+    try {
+      const result = await apiRequest<{ results: PriceSearchResult[] }>("GET", undefined, `/api/prices?barcode=${encodeURIComponent(code)}`);
+      setScanResults(result.results);
+      if (!result.results.length) setScanError("Ez a vonalkód nincs benne a mai GVH árlistában.");
+    } catch (failure) {
+      setScanError(failure instanceof Error ? failure.message : "A vonalkód keresése nem sikerült.");
+    } finally {
+      setScanBusy(false);
+    }
+  }, []);
+
+  const handleScannerError = useCallback((message: string) => setScanError(message), []);
+
+  async function addScannedProduct(product: PriceSearchResult, withPriceWatch: boolean) {
+    if (scanBusy) return;
+    setScanBusy(true);
+    try {
+      let record: ShoppingItem;
+      if (withPriceWatch) {
+        ({ record } = await apiRequest<{ record: ShoppingItem }>("POST", {
+          action: "addToShopping",
+          productId: product.productId,
+        }, "/api/prices"));
+      } else {
+        ({ record } = await apiRequest<{ record: ShoppingItem }>("POST", {
+          type: "shopping",
+          name: product.productName,
+          quantity: `1 × ${product.packageSize} ${product.unit}`,
+          category: product.categoryName || "Egyéb",
+        }));
+      }
+      setShopping((items) => [record, ...items]);
+      setScannerOpen(false);
+      setToast(withPriceWatch ? "Listához adva, árfigyeléssel" : "Hozzáadva a bevásárlólistához");
+    } catch (failure) {
+      showFailure(failure);
+    } finally {
+      setScanBusy(false);
+    }
+  }
+
+  function addUnknownBarcodeManually() {
+    setScannerOpen(false);
+    openAdd("shopping");
+    setToast("Nem találtuk az árlistában — add meg kézzel");
   }
 
   async function searchPrices(query = priceQuery) {
@@ -915,6 +980,7 @@ export default function OtthonApp() {
                   onPrice={openPriceMonitor}
                   onDelete={(id, title) => deleteItem("shopping", id, title)}
                   onClear={clearCompletedShopping} onQuickAdd={() => openAdd("shopping")}
+                  onScan={openBarcodeScanner}
                 />
               )}
             </>
@@ -1001,6 +1067,28 @@ export default function OtthonApp() {
                 <button type="submit" className="primary-button" disabled={!draft.title.trim() || saving}><IonIcon icon={editingItemId ? checkmark : add} /> {saving ? "Mentés…" : editingItemId ? "Módosítások mentése" : "Hozzáadás"}</button>
                 {editingItemId && <button type="button" className="sheet-delete-button" disabled={saving} onClick={() => void deleteEditingItem()}><IonIcon icon={trashOutline} /> {addMode === "event" ? "Esemény" : addMode === "chore" ? "Feladat" : "Tétel"} törlése</button>}
               </form>
+            </section>
+          </div>
+        )}
+
+        {scannerOpen && (
+          <div className="sheet-backdrop scanner-backdrop" role="presentation" onMouseDown={() => !scanBusy && setScannerOpen(false)}>
+            <section className="add-sheet scanner-sheet" role="dialog" aria-modal="true" aria-labelledby="scanner-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="sheet-handle" />
+              <div className="sheet-heading"><div><span className="eyebrow">Gyors hozzáadás</span><h2 id="scanner-title">Vonalkód beolvasása</h2></div><button type="button" className="icon-button subtle" onClick={() => setScannerOpen(false)} aria-label="Bezárás" disabled={scanBusy}><IonIcon icon={close} /></button></div>
+              {!scanCode && <>
+                <BarcodeScanner onDetected={handleBarcodeDetected} onError={handleScannerError} />
+                <p className="scanner-help">Tartsd a csomagolás vonalkódját a keret közepére. A kamera csak a beolvasás idejére kapcsol be.</p>
+              </>}
+              {scanCode && <div className="scan-code"><IonIcon icon={barcodeOutline} /><span>Beolvasva</span><strong>{scanCode}</strong></div>}
+              {scanBusy && <div className="price-loading"><span className="loading-orb" />Termék keresése…</div>}
+              {!scanBusy && scanResults.length > 0 && <div className="scan-results">{scanResults.map((product) => <article className="scan-product" key={product.productId}>
+                <div className="scan-product-copy"><span>{product.categoryName}</span><h3>{product.productName}</h3><p>{product.packageSize} {product.unit} · max. {formatForint(product.bestPrice)} · {product.bestChain}</p></div>
+                <button type="button" className="scan-primary" onClick={() => void addScannedProduct(product, true)}><IonIcon icon={pricetagOutline} /> Listához + árfigyelés</button>
+                <button type="button" className="scan-secondary" onClick={() => void addScannedProduct(product, false)}>Csak a listához</button>
+              </article>)}</div>}
+              {!scanBusy && scanError && <div className="scan-error"><strong>{scanError}</strong>{scanCode && <button type="button" onClick={addUnknownBarcodeManually}>Kézzel adom hozzá</button>}</div>}
+              {scanCode && <button type="button" className="scan-again" onClick={openBarcodeScanner}><IonIcon icon={barcodeOutline} /> Másik vonalkód</button>}
             </section>
           </div>
         )}
@@ -1410,12 +1498,15 @@ function ChoresView({ actor, familyMembers, chores, progress, onToggle, onClaim,
   );
 }
 
-function ShoppingView({ groups, remaining, onToggle, onEdit, onPrice, onDelete, onClear, onQuickAdd }: { groups: Record<string, ShoppingItem[]>; remaining: number; onToggle: (id: number) => void; onEdit: (item: ShoppingItem) => void; onPrice: (item: ShoppingItem) => void; onDelete: (id: number, title: string) => void; onClear: () => void; onQuickAdd: () => void }) {
+function ShoppingView({ groups, remaining, onToggle, onEdit, onPrice, onDelete, onClear, onQuickAdd, onScan }: { groups: Record<string, ShoppingItem[]>; remaining: number; onToggle: (id: number) => void; onEdit: (item: ShoppingItem) => void; onPrice: (item: ShoppingItem) => void; onDelete: (id: number, title: string) => void; onClear: () => void; onQuickAdd: () => void; onScan: () => void }) {
   const allItems = Object.values(groups).flat();
   return (
     <div className="screen">
       <ScreenHeader eyebrow="Közös lista" title="Bevásárlás" action={<span className="count-badge">{remaining}</span>} />
-      <button type="button" className="quick-add-bar" onClick={onQuickAdd}><span><IonIcon icon={add} /></span><div><strong>Mi fogyott el?</strong><small>Koppints a gyors hozzáadáshoz</small></div></button>
+      <div className="shopping-add-grid">
+        <button type="button" className="quick-add-bar" onClick={onQuickAdd}><span><IonIcon icon={add} /></span><div><strong>Mi fogyott el?</strong><small>Gyors hozzáadás</small></div></button>
+        <button type="button" className="quick-add-bar barcode-add" onClick={onScan}><span><IonIcon icon={barcodeOutline} /></span><div><strong>Vonalkód</strong><small>Beolvasom</small></div></button>
+      </div>
       <div className="shopping-status"><span>{remaining} tétel vár</span><span><IonIcon icon={cloudDoneOutline} /> Azonnal frissül mindenkinél</span></div>
       <section className="shopping-groups">
         {Object.entries(groups).map(([category, items]) => <div className="shopping-group" key={category}>
@@ -1430,4 +1521,56 @@ function ShoppingView({ groups, remaining, onToggle, onEdit, onPrice, onDelete, 
       {allItems.some((item) => item.checked) && <button type="button" className="clear-button" onClick={onClear}>Megvásároltak törlése</button>}
     </div>
   );
+}
+
+function BarcodeScanner({ onDetected, onError }: { onDetected: (code: string) => void; onError: (message: string) => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    let controls: { stop: () => void } | undefined;
+    const video = videoRef.current;
+
+    void (async () => {
+      try {
+        const [{ BrowserMultiFormatReader }, { BarcodeFormat }] = await Promise.all([
+          import("@zxing/browser"),
+          import("@zxing/library"),
+        ]);
+        if (!active || !video) return;
+        const reader = new BrowserMultiFormatReader(undefined, { delayBetweenScanAttempts: 120 });
+        reader.possibleFormats = [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E];
+        controls = await reader.decodeFromConstraints({
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        }, video, (result) => {
+          if (!active || !result) return;
+          active = false;
+          controls?.stop();
+          if (navigator.vibrate) navigator.vibrate(80);
+          onDetected(result.getText());
+        });
+      } catch (failure) {
+        if (!active) return;
+        const name = failure instanceof DOMException ? failure.name : "";
+        if (name === "NotAllowedError") onError("Engedélyezd a kamerát az Otthon számára az iPhone beállításaiban.");
+        else if (name === "NotFoundError") onError("Nem található használható kamera ezen az eszközön.");
+        else onError("A kamera nem indult el. Zárd be az ablakot, majd próbáld újra.");
+      }
+    })();
+
+    return () => {
+      active = false;
+      controls?.stop();
+      const stream = video?.srcObject;
+      if (stream instanceof MediaStream) stream.getTracks().forEach((track) => track.stop());
+      if (video) video.srcObject = null;
+    };
+  }, [onDetected, onError]);
+
+  return <div className="scanner-camera"><video ref={videoRef} autoPlay muted playsInline aria-label="Vonalkódolvasó kamera" /><div className="scanner-frame"><i /></div><span>Keresem a vonalkódot…</span></div>;
 }
