@@ -5,8 +5,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await getSql()`SELECT 1`;
-    return NextResponse.json({ status: "ok" });
+    const rows = await getSql()`
+      SELECT count(*)::int AS "priceRows", max(data_date)::text AS "priceDataDate"
+      FROM price_catalog
+    ` as unknown as Array<{ priceRows: number; priceDataDate: string | null }>;
+    return NextResponse.json({ status: "ok", ...rows[0] });
   } catch (error) {
     console.error("Health check failed", error);
     return NextResponse.json({ status: "error" }, { status: 503 });
