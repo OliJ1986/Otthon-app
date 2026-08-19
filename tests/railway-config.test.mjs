@@ -25,9 +25,11 @@ test("a cron az események mellett a GVH napi árlistát is feldolgozza", async 
   assert.equal(packageJson.scripts["reminders:send"], "node scripts/run-jobs.mjs");
   assert.equal(packageJson.scripts["prices:import"], "node scripts/import-price-data.mjs");
   const importer = await readFile(new URL("../scripts/import-price-data.mjs", import.meta.url), "utf8");
+  const instrumentation = await readFile(new URL("../lib/background-jobs.ts", import.meta.url), "utf8");
   assert.match(importer, /arfigyelo_napi_termekadatok\.xlsx/);
   assert.match(importer, /price_watch_history/);
   assert.match(importer, /05:15/);
+  assert.match(instrumentation, /15 \* 60_000/);
 });
 
 test("a példakörnyezet nem tartalmaz valódi titkot", async () => {
