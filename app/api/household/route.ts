@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSql } from "@/db";
 import { getSessionUser, sameOrigin } from "@/lib/auth";
+import { sendPushToUser } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type RepeatRule = "none" | "daily" | "weekly" | "monthly";
 type ItemType = "event" | "chore" | "shopping";
@@ -32,6 +34,7 @@ type ChoreRow = {
   completedOn: string | null;
   tone: string;
 };
+type ClaimedChoreRow = ChoreRow & { previousAssignee: string };
 type ShoppingRow = {
   id: number;
   name: string;
@@ -258,13 +261,39 @@ export async function PATCH(request: NextRequest) {
     if (payload.type === "chore") {
       if (payload.action === "claim") {
         const rows = await sql`
-          UPDATE chores SET assignee = ${actor.displayName}, updated_at = now()
-          WHERE id = ${id}
-          RETURNING id, title, room, assignee, due_label AS "dueLabel",
-            repeat_rule AS "repeatRule", done, completed_on::text AS "completedOn", tone
-        ` as unknown as ChoreRow[];
+          WITH previous AS (
+            SELECT id, assignee FROM chores WHERE id = ${id} FOR UPDATE
+          ), updated AS (
+            UPDATE chores
+            SET assignee = ${actor.displayName}, updated_at = now()
+            FROM previous
+            WHERE chores.id = previous.id
+            RETURNING chores.id, chores.title, chores.room, chores.assignee,
+              chores.due_label AS "dueLabel", chores.repeat_rule AS "repeatRule",
+              chores.done, chores.completed_on::text AS "completedOn", chores.tone,
+              previous.assignee AS "previousAssignee"
+          )
+          SELECT * FROM updated
+        ` as unknown as ClaimedChoreRow[];
         if (!rows[0]) return NextResponse.json({ error: "A feladat nem található." }, { status: 404 });
         const row = rows[0];
+        if (row.previousAssignee.localeCompare(actor.displayName, "hu", { sensitivity: "base" }) !== 0) {
+          const previousUsers = await sql`
+            SELECT id FROM users
+            WHERE lower(trim(display_name)) = lower(trim(${row.previousAssignee}))
+              AND id <> ${actor.id}
+            LIMIT 1
+          ` as unknown as Array<{ id: number }>;
+          const previousUser = previousUsers[0];
+          if (previousUser) {
+            await sendPushToUser(previousUser.id, {
+              title: "Feladat átvállalva",
+              body: `${actor.displayName} átvállalta tőled: ${row.title}`,
+              url: "/",
+              tag: `chore-claim-${row.id}-${Date.now()}`,
+            }).catch((error) => console.error("Chore claim push failed", error));
+          }
+        }
         return NextResponse.json({ record: {
           ...row,
           recurring: row.repeatRule !== "none",
