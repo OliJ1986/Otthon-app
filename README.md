@@ -47,3 +47,5 @@ npm run build
 ```
 
 Az egész család adatai ugyanabban a privát PostgreSQL-adatbázisban maradnak. Nyilvános regisztráció nincs: az első tulajdonos hozhat létre további felnőtt-belépéseket és gyerekprofilokat.
+
+<!-- railway-deploy-trigger: 2026-08-20T21:13+02:00 -->
