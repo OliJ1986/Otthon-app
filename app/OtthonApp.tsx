@@ -77,7 +77,8 @@ type ShoppingItem = {
 type PriceWatchSummary = { id: number; productId: string; productName: string | null; targetPrice: string | null; bestPrice: string | null; bestChain: string | null; dataDate: string | null; source?: string | null };
 type PriceOffer = { source: "gvh" | "tesco" | "lidl" | "manual"; chainName: string; maxPrice: string; maxUnitPrice: string | null; storeCount: number; promotionPrice: string | null; promotionLabel: string | null; validUntil: string | null; observedOn: string; locationLabel: string | null };
 type PriceWatchDetail = { id: number; shoppingItemId: number; productId: string; productName: string; categoryName: string; unit: string; packageSize: string; targetPrice: string | null; notifyOnDrop: boolean; dataDate: string | null; offers: PriceOffer[]; history: Array<{ date: string; maxPrice: string }> };
-type PriceSearchResult = { productId: string; productName: string; categoryName: string; unit: string; packageSize: string; bestPrice: string | null; bestChain: string | null; chainCount: number; dataDate: string | null; sources: string[]; imageUrl?: string | null };
+type PriceSearchOffer = { source: "gvh" | "tesco" | "lidl" | "manual"; chainName: string; price: string; promotionPrice: string | null; promotionLabel: string | null; observedOn: string; validUntil: string | null };
+type PriceSearchResult = { productId: string; productName: string; categoryName: string; unit: string; packageSize: string; bestPrice: string | null; bestChain: string | null; chainCount: number; dataDate: string | null; sources: string[]; offers: PriceSearchOffer[]; cached?: boolean; imageUrl?: string | null };
 
 type Actor = { id: number; username: string; displayName: string; role: "owner" | "member" };
 type AuthMode = "checking" | "setup" | "login" | "authenticated";
@@ -410,6 +411,14 @@ async function apiRequest<T>(method: string, body?: unknown, path = "/api/househ
 
 function EventIcon({ kind }: { kind: EventKind }) {
   return <IonIcon icon={kind === "medical" ? medicalOutline : kind === "school" ? schoolOutline : calendarClearOutline} />;
+}
+
+function SearchOfferList({ offers }: { offers: PriceSearchOffer[] }) {
+  if (!offers.length) return <p className="search-offers-empty">Aktuális ár még nincs.</p>;
+  return <div className="search-offers">{offers.map((offer) => <div key={`${offer.source}-${offer.chainName}`}>
+    <span><strong>{offer.chainName}</strong><small>{offer.source === "gvh" ? "GVH maximumár" : offer.source === "manual" ? "Saját ár" : offer.promotionLabel || "Aktuális ár"}{offer.validUntil ? ` · ${offer.validUntil}-ig` : ""}</small></span>
+    <strong>{offer.source === "gvh" ? "max. " : ""}{formatForint(offer.promotionPrice || offer.price)}{offer.promotionPrice && <small>{formatForint(offer.price)}</small>}</strong>
+  </div>)}</div>;
 }
 
 export default function OtthonApp() {
@@ -1125,7 +1134,7 @@ export default function OtthonApp() {
               {scanCode && <div className="scan-code"><IonIcon icon={barcodeOutline} /><span>Beolvasva</span><strong>{scanCode}</strong></div>}
               {scanBusy && <div className="price-loading"><span className="loading-orb" />Termék keresése…</div>}
               {!scanBusy && scanResults.length > 0 && <div className="scan-results">{scanResults.map((product) => <article className="scan-product" key={product.productId}>
-                <div className="scan-product-copy"><span>{product.sources.join(" · ")}</span><h3>{product.productName}</h3><p>{product.packageSize} {product.unit} · {product.bestPrice ? `${formatForint(product.bestPrice)} · ${product.bestChain}` : "termék felismerve, aktuális ár még nincs"}</p></div>
+                <div className="scan-product-copy"><span>{product.sources.join(" · ")}{product.cached ? " · gyorsítótárból" : ""}</span><h3>{product.productName}</h3><p>{product.packageSize} {product.unit} · {product.offers.length} ismert ár</p><SearchOfferList offers={product.offers} /></div>
                 <button type="button" className="scan-primary" onClick={() => void addScannedProduct(product, true)}><IonIcon icon={pricetagOutline} /> Listához + árfigyelés</button>
                 <button type="button" className="scan-secondary" onClick={() => void addScannedProduct(product, false)}>Csak a listához</button>
               </article>)}</div>}
@@ -1150,7 +1159,7 @@ export default function OtthonApp() {
               </> : <>
                 <div className="price-search"><IonIcon icon={searchOutline} /><input value={priceQuery} onChange={(event) => setPriceQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchPrices(); } }} placeholder="Termék vagy kategória" /><button type="button" onClick={() => void searchPrices()} disabled={priceBusy || priceQuery.trim().length < 2}>Keresés</button></div>
                 <label className="price-target"><span>Opcionális célár</span><input inputMode="decimal" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="pl. 5999" /></label>
-                <div className="price-results">{priceResults.map((result) => <button type="button" key={result.productId} onClick={() => void savePriceWatch(result.productId)} disabled={priceBusy}><div><strong>{result.productName}</strong><span>{result.sources.join(" · ")} · {result.categoryName}</span></div><strong>{result.bestPrice ? formatForint(result.bestPrice) : "Figyelhető"}<small>{result.bestChain || "ár nélkül"}</small></strong></button>)}</div>
+                <div className="price-results">{priceResults.map((result) => <button type="button" className="wide-result" key={result.productId} onClick={() => void savePriceWatch(result.productId)} disabled={priceBusy}><div><strong>{result.productName}</strong><span>{result.sources.join(" · ")} · {result.categoryName}{result.cached ? " · gyorsítótár" : ""}</span><SearchOfferList offers={result.offers} /></div></button>)}</div>
                 {priceBusy && <div className="price-loading"><span className="loading-orb" />Árak keresése…</div>}
                 {!priceBusy && <button type="button" className="manual-watch-button" onClick={() => void createManualPriceWatch()}><IonIcon icon={pricetagOutline} /> Saját árfigyelés ehhez a tételhez</button>}
               </>}

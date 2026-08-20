@@ -35,7 +35,7 @@ Az első megnyitáskor az alkalmazás kéri a tulajdonosi felhasználónevet és
 4. Generálj VAPID kulcsokat az `npm run vapid:generate` paranccsal, majd add hozzá a Railway változókhoz a `.env.example` alapján.
 5. Az értesítésekhez hozz létre ugyanebből a repóból egy második Railway szolgáltatást. A Config File Path legyen `/railway.cron.json`, a cron ütemezés pedig `*/5 * * * *` (UTC).
 
-A cron szolgáltatás ugyanazokat a `DATABASE_URL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` és `VAPID_SUBJECT` változókat kapja. Az alkalmazás egy eseményhez csak egyszer küld értesítést akkor is, ha a cron újra lefut. A GVH katalógus és a Tesco/Lidl figyelések naponta egyszer frissülnek; a Tesco publikus frontend-konfigurációját a rendszer automatikusan olvassa ki. A `TESCO_API_KEY` csak opcionális tartalék, normál esetben üresen maradhat. Az Aldi és a helyi boltok blokkára az árfigyelőn belül saját árként rögzíthető.
+A cron szolgáltatás ugyanazokat a `DATABASE_URL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` és `VAPID_SUBJECT` változókat kapja. Az alkalmazás egy eseményhez csak egyszer küld értesítést akkor is, ha a cron újra lefut. A GVH katalógus és a Tesco/Lidl figyelések naponta egyszer frissülnek; a Tesco publikus frontend-konfigurációját a rendszer automatikusan olvassa ki. A vonalkód–termék megfeleltetés tartósan megmarad, a külső árkeresés eredménye három napig újra felhasználható. A `TESCO_API_KEY` csak opcionális tartalék, normál esetben üresen maradhat. Az Aldi és a helyi boltok blokkára az árfigyelőn belül saját árként rögzíthető.
 
 ## Ellenőrzés
 

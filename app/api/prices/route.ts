@@ -15,6 +15,15 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type Sql = ReturnType<typeof getSql>;
+type SearchOffer = {
+  source: "gvh" | "tesco" | "lidl" | "manual";
+  chainName: string;
+  price: string;
+  promotionPrice: string | null;
+  promotionLabel: string | null;
+  observedOn: string;
+  validUntil: string | null;
+};
 type SearchResult = {
   productId: string;
   productName: string;
@@ -26,6 +35,8 @@ type SearchResult = {
   chainCount: number;
   dataDate: string | null;
   sources: string[];
+  offers: SearchOffer[];
+  cached?: boolean;
   imageUrl?: string | null;
 };
 
@@ -54,6 +65,21 @@ function canonicalProductId(product: ExternalProduct) {
 
 function effectivePrice(product: ExternalProduct) {
   return product.promotionPrice ?? product.price;
+}
+
+function offerPrice(offer: SearchOffer) {
+  return Number(offer.promotionPrice ?? offer.price);
+}
+
+function sortedOffers(offers: SearchOffer[]) {
+  return offers.sort((left, right) => offerPrice(left) - offerPrice(right) || left.chainName.localeCompare(right.chainName, "hu"));
+}
+
+function sortedResults(results: SearchResult[]) {
+  return results.sort((left, right) => {
+    const priceDifference = Number(left.bestPrice ?? Infinity) - Number(right.bestPrice ?? Infinity);
+    return priceDifference || left.productName.localeCompare(right.productName, "hu");
+  });
 }
 
 async function saveExternalProduct(sql: Sql, product: ExternalProduct, forcedProductId?: string) {
@@ -109,6 +135,15 @@ async function saveExternalProduct(sql: Sql, product: ExternalProduct, forcedPro
 
 function resultFromExternal(product: ExternalProduct, productId = canonicalProductId(product)): SearchResult {
   const price = effectivePrice(product);
+  const offers: SearchOffer[] = product.price == null ? [] : [{
+    source: product.source === "off" ? "manual" : product.source,
+    chainName: sourceName(product.source),
+    price: String(product.price),
+    promotionPrice: product.promotionPrice == null ? null : String(product.promotionPrice),
+    promotionLabel: product.promotionLabel,
+    observedOn: product.observedOn,
+    validUntil: product.validUntil,
+  }];
   return {
     productId,
     productName: product.productName,
@@ -120,6 +155,7 @@ function resultFromExternal(product: ExternalProduct, productId = canonicalProdu
     chainCount: product.price == null ? 0 : 1,
     dataDate: product.price == null ? null : product.observedOn,
     sources: [sourceName(product.source)],
+    offers,
     imageUrl: product.imageUrl,
   };
 }
@@ -144,7 +180,12 @@ async function gvhBarcodeResults(sql: Sql, barcode: string): Promise<SearchResul
       max(chain_name) FILTER (WHERE price_rank = 1) AS "bestChain",
       count(*)::int AS "chainCount",
       max(data_date)::text AS "dataDate",
-      ARRAY['GVH']::text[] AS sources
+      ARRAY['GVH']::text[] AS sources,
+      json_agg(json_build_object(
+        'source', 'gvh', 'chainName', chain_name, 'price', max_price::text,
+        'promotionPrice', NULL, 'promotionLabel', NULL,
+        'observedOn', data_date::text, 'validUntil', NULL
+      ) ORDER BY max_price::numeric ASC, chain_name ASC) AS offers
     FROM matches
     GROUP BY product_id
     ORDER BY min(CASE WHEN product_id = ${barcode} THEN 0 ELSE 1 END), min(max_price::numeric), max(product_name)
@@ -172,7 +213,12 @@ async function gvhTextResults(sql: Sql, query: string): Promise<SearchResult[]> 
       max(chain_name) FILTER (WHERE price_rank = 1) AS "bestChain",
       count(*)::int AS "chainCount",
       max(data_date)::text AS "dataDate",
-      ARRAY['GVH']::text[] AS sources
+      ARRAY['GVH']::text[] AS sources,
+      json_agg(json_build_object(
+        'source', 'gvh', 'chainName', chain_name, 'price', max_price::text,
+        'promotionPrice', NULL, 'promotionLabel', NULL,
+        'observedOn', data_date::text, 'validUntil', NULL
+      ) ORDER BY max_price::numeric ASC, chain_name ASC) AS offers
     FROM matches
     GROUP BY product_id
     ORDER BY min(max_price::numeric) ASC, max(product_name) ASC
@@ -180,32 +226,153 @@ async function gvhTextResults(sql: Sql, query: string): Promise<SearchResult[]> 
   ` as unknown as SearchResult[];
 }
 
-async function barcodeResults(sql: Sql, barcode: string) {
-  const [gvh, off] = await Promise.all([
-    gvhBarcodeResults(sql, barcode),
-    lookupOpenFoodFacts(barcode).catch(() => null),
+async function cachedBarcodeReference(sql: Sql, barcode: string) {
+  const normalized = normalizeBarcode(barcode);
+  const rows = await sql`
+    SELECT product_id AS "productId", barcode, product_name AS "productName", brand, quantity,
+      package_size AS "packageSize", unit, category_name AS "categoryName", image_url AS "imageUrl",
+      source, source_product_id AS "sourceProductId",
+      (GREATEST(product.fetched_at, COALESCE(prices.last_update, product.fetched_at)) >= now() - interval '3 days') AS fresh
+    FROM external_products product
+    LEFT JOIN LATERAL (
+      SELECT max(updated_at) AS last_update
+      FROM external_price_observations WHERE product_id = product.product_id AND source <> 'manual'
+    ) prices ON true
+    WHERE product.product_id = ${barcode}
+      OR product.barcode = ${barcode}
+      OR (product.barcode ~ '^[0-9]+$' AND trim(leading '0' from product.barcode) = ${normalized})
+    ORDER BY CASE WHEN product.product_id = ${barcode} OR product.barcode = ${barcode} THEN 0 ELSE 1 END, product.updated_at DESC
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  const source = ["off", "tesco", "lidl"].includes(String(row.source)) ? row.source as ExternalProduct["source"] : "off";
+  const reference: ExternalProduct = {
+    source,
+    sourceProductId: String(row.sourceProductId || row.productId),
+    barcode: row.barcode ? String(row.barcode) : barcode,
+    productName: String(row.productName),
+    brand: row.brand ? String(row.brand) : null,
+    quantity: row.quantity ? String(row.quantity) : null,
+    packageSize: row.packageSize == null ? null : Number(row.packageSize),
+    unit: row.unit ? String(row.unit) : null,
+    categoryName: String(row.categoryName || "Egyéb"),
+    imageUrl: row.imageUrl ? String(row.imageUrl) : null,
+    price: null,
+    promotionPrice: null,
+    promotionLabel: null,
+    unitPrice: null,
+    observedOn: todayInBudapest(),
+    validFrom: null,
+    validUntil: null,
+    sourceUrl: null,
+  };
+  return { productId: String(row.productId), reference, fresh: row.fresh === true };
+}
+
+async function recentExternalOffers(sql: Sql, productId: string): Promise<SearchOffer[]> {
+  const rows = await sql`
+    SELECT DISTINCT ON (source, chain_name)
+      source, chain_name AS "chainName", price::text,
+      promotion_price::text AS "promotionPrice", promotion_label AS "promotionLabel",
+      observed_on::text AS "observedOn", valid_until::text AS "validUntil"
+    FROM external_price_observations
+    WHERE product_id = ${productId}
+      AND (source = 'manual' OR observed_on >= CURRENT_DATE - 3)
+      AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
+    ORDER BY source, chain_name, observed_on DESC, updated_at DESC
+  `;
+  return rows as unknown as SearchOffer[];
+}
+
+async function unifiedBarcodeResult(
+  sql: Sql,
+  productId: string,
+  reference: ExternalProduct,
+  gvh: SearchResult[],
+  cached: boolean,
+) {
+  const gvhResult = gvh[0] || null;
+  const offers = sortedOffers([
+    ...(gvhResult?.offers || []),
+    ...await recentExternalOffers(sql, productId),
   ]);
-  if (off) {
-    const productId = gvh[0]?.productId || barcode;
-    const offers = await findRetailOffers(off).catch(() => []);
-    await saveExternalProduct(sql, off, productId);
-    await Promise.all(offers.map((offer) => saveExternalProduct(sql, offer, productId)));
-    const priced = offers.sort((left, right) => (effectivePrice(left) ?? Infinity) - (effectivePrice(right) ?? Infinity))[0];
-    const gvhBest = gvh[0];
-    const externalBest = priced ? resultFromExternal(priced, productId) : null;
-    const useExternal = externalBest?.bestPrice != null
-      && (gvhBest?.bestPrice == null || Number(externalBest.bestPrice) < Number(gvhBest.bestPrice));
-    return [{
-      ...(useExternal && externalBest ? externalBest : gvhBest || resultFromExternal(off, productId)),
-      productId,
-      productName: off.productName,
-      categoryName: off.categoryName || gvhBest?.categoryName || "Egyéb",
-      unit: off.unit || gvhBest?.unit || "db",
-      packageSize: String(off.packageSize ?? gvhBest?.packageSize ?? 1),
-      imageUrl: off.imageUrl,
-      chainCount: new Set([...(gvhBest?.sources || []), ...offers.map((item) => sourceName(item.source))]).size,
-      sources: [...new Set([...(gvhBest?.sources || []), "Open Food Facts", ...offers.map((item) => sourceName(item.source))])],
-    } satisfies SearchResult];
+  const best = offers[0] || null;
+  const sourceLabels = [...new Set([
+    ...(gvhResult?.sources || []),
+    sourceName(reference.source),
+    ...offers.filter((offer) => offer.source !== "gvh").map((offer) => offer.chainName),
+  ])];
+  const dataDates = offers.map((offer) => offer.observedOn).filter(Boolean).sort();
+  return {
+    productId,
+    productName: reference.productName,
+    categoryName: reference.categoryName || gvhResult?.categoryName || "Egyéb",
+    unit: reference.unit || gvhResult?.unit || "db",
+    packageSize: String(reference.packageSize ?? gvhResult?.packageSize ?? 1),
+    bestPrice: best ? String(offerPrice(best)) : null,
+    bestChain: best?.chainName || null,
+    chainCount: offers.length,
+    dataDate: dataDates.at(-1) || null,
+    sources: sourceLabels,
+    offers,
+    cached,
+    imageUrl: reference.imageUrl,
+  } satisfies SearchResult;
+}
+
+async function cachedExternalTextResults(sql: Sql, query: string): Promise<SearchResult[]> {
+  const search = `%${fold(query)}%`;
+  return sql`
+    WITH recent AS (
+      SELECT DISTINCT ON (product_id, source, chain_name)
+        product_id, source, chain_name, price, promotion_price, promotion_label,
+        observed_on, valid_until
+      FROM external_price_observations
+      WHERE (source = 'manual' OR observed_on >= CURRENT_DATE - 3)
+        AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
+      ORDER BY product_id, source, chain_name, observed_on DESC, updated_at DESC
+    )
+    SELECT product.product_id AS "productId", product.product_name AS "productName",
+      product.category_name AS "categoryName", COALESCE(product.unit, 'db') AS unit,
+      COALESCE(product.package_size, 1)::text AS "packageSize",
+      min(COALESCE(recent.promotion_price, recent.price)::numeric)::text AS "bestPrice",
+      (array_agg(recent.chain_name ORDER BY COALESCE(recent.promotion_price, recent.price)::numeric ASC))[1] AS "bestChain",
+      count(*)::int AS "chainCount", max(recent.observed_on)::text AS "dataDate",
+      array_agg(DISTINCT CASE WHEN recent.source = 'manual' THEN 'Saját ár' ELSE recent.chain_name END) AS sources,
+      json_agg(json_build_object(
+        'source', recent.source, 'chainName', recent.chain_name, 'price', recent.price::text,
+        'promotionPrice', recent.promotion_price::text, 'promotionLabel', recent.promotion_label,
+        'observedOn', recent.observed_on::text, 'validUntil', recent.valid_until::text
+      ) ORDER BY COALESCE(recent.promotion_price, recent.price)::numeric ASC, recent.chain_name ASC) AS offers,
+      true AS cached, product.image_url AS "imageUrl"
+    FROM external_products product
+    JOIN recent ON recent.product_id = product.product_id
+    WHERE translate(lower(product.product_name), 'áéíóöőúüű', 'aeiooouuu') LIKE ${search}
+    GROUP BY product.product_id
+    HAVING product.fetched_at >= now() - interval '3 days'
+      OR max(recent.observed_on) FILTER (WHERE recent.source <> 'manual') >= CURRENT_DATE - 3
+    ORDER BY min(COALESCE(recent.promotion_price, recent.price)::numeric) ASC, product.product_name ASC
+    LIMIT 20
+  ` as unknown as SearchResult[];
+}
+
+async function barcodeResults(sql: Sql, barcode: string) {
+  const [gvh, cachedProduct] = await Promise.all([
+    gvhBarcodeResults(sql, barcode),
+    cachedBarcodeReference(sql, barcode),
+  ]);
+  if (cachedProduct?.fresh) {
+    return [await unifiedBarcodeResult(sql, cachedProduct.productId, cachedProduct.reference, gvh, true)];
+  }
+
+  const reference = cachedProduct?.reference || await lookupOpenFoodFacts(barcode).catch(() => null);
+  if (reference) {
+    const productId = cachedProduct?.productId || gvh[0]?.productId || barcode;
+    const retailOffers = await findRetailOffers(reference).catch(() => []);
+    await saveExternalProduct(sql, reference, productId);
+    await Promise.all(retailOffers.map((offer) => saveExternalProduct(sql, offer, productId)));
+    return [await unifiedBarcodeResult(sql, productId, reference, gvh, false)];
   }
   if (gvh.length) return gvh;
 
@@ -214,7 +381,7 @@ async function barcodeResults(sql: Sql, barcode: string) {
   if (!exact) return [];
   const productId = barcode;
   await saveExternalProduct(sql, { ...exact, barcode }, productId);
-  return [resultFromExternal(exact, productId)];
+  return [await unifiedBarcodeResult(sql, productId, { ...exact, barcode }, [], false)];
 }
 
 async function watchDetails(shoppingItemId: number) {
@@ -262,6 +429,7 @@ async function watchDetails(shoppingItemId: number) {
             external.valid_until, external.observed_on, external.location_label
           FROM external_price_observations external
           WHERE external.product_id = w.product_id
+            AND (external.source = 'manual' OR external.observed_on >= CURRENT_DATE - 3)
             AND (external.valid_until IS NULL OR external.valid_until >= CURRENT_DATE)
           ORDER BY external.source, external.chain_name, external.observed_on DESC, external.updated_at DESC
         ) recent
@@ -314,10 +482,15 @@ export async function GET(request: NextRequest) {
   if (query.length < 2) return NextResponse.json({ results: [] });
   try {
     const sql = getSql();
-    const [gvh, retailerProducts] = await Promise.all([
+    const [gvh, cachedExternal] = await Promise.all([
       gvhTextResults(sql, query),
-      searchRetailers(query).catch(() => []),
+      cachedExternalTextResults(sql, query),
     ]);
+    if (cachedExternal.length) {
+      return NextResponse.json({ results: sortedResults([...gvh, ...cachedExternal]).slice(0, 40), cached: true });
+    }
+
+    const retailerProducts = await searchRetailers(query).catch(() => []);
     const selected = retailerProducts
       .sort((left, right) => (effectivePrice(left) ?? Infinity) - (effectivePrice(right) ?? Infinity))
       .filter((product, index, products) => products.findIndex((item) => item.source === product.source && item.sourceProductId === product.sourceProductId) === index)
@@ -326,7 +499,7 @@ export async function GET(request: NextRequest) {
       const productId = await saveExternalProduct(sql, product);
       return resultFromExternal(product, productId);
     }));
-    return NextResponse.json({ results: [...gvh, ...external].slice(0, 40) });
+    return NextResponse.json({ results: sortedResults([...gvh, ...external]).slice(0, 40), cached: false });
   } catch (error) {
     return serverError(error);
   }

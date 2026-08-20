@@ -64,6 +64,19 @@ test("a többforrású keresés a terméket és az ár eredetét külön kezeli"
   assert.match(schema, /validUntil: date\("valid_until"/);
 });
 
+test("az ajánlatok ár szerint rendeződnek és a külső lekérések három napig cache-eltek", async () => {
+  const priceApi = await readFile(new URL("../app/api/prices/route.ts", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app/OtthonApp.tsx", import.meta.url), "utf8");
+  assert.match(priceApi, /function sortedOffers/);
+  assert.match(priceApi, /offerPrice\(left\) - offerPrice\(right\)/);
+  assert.match(priceApi, /cachedBarcodeReference/);
+  assert.match(priceApi, /cachedExternalTextResults/);
+  assert.match(priceApi, /interval '3 days'/);
+  assert.match(priceApi, /observed_on >= CURRENT_DATE - 3/);
+  assert.match(app, /function SearchOfferList/);
+  assert.match(app, /gyorsítótárból/);
+});
+
 test("a vonalkód egy lépésben terméket és árfigyelést hoz létre", async () => {
   const packageJson = await json("package.json");
   const priceApi = await readFile(new URL("../app/api/prices/route.ts", import.meta.url), "utf8");

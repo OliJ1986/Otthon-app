@@ -155,10 +155,16 @@ export async function GET(request: NextRequest) {
             FROM external_products product
             LEFT JOIN LATERAL (
               SELECT source, chain_name, price, promotion_price, observed_on
-              FROM external_price_observations
-              WHERE product_id = product.product_id
-                AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
-              ORDER BY COALESCE(promotion_price, price)::numeric ASC, observed_on DESC
+              FROM (
+                SELECT DISTINCT ON (source, chain_name)
+                  source, chain_name, price, promotion_price, observed_on, updated_at
+                FROM external_price_observations
+                WHERE product_id = product.product_id
+                  AND (source = 'manual' OR observed_on >= CURRENT_DATE - 3)
+                  AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
+                ORDER BY source, chain_name, observed_on DESC, updated_at DESC
+              ) current_prices
+              ORDER BY COALESCE(promotion_price, price)::numeric ASC, chain_name ASC
               LIMIT 1
             ) observation ON true
             WHERE product.product_id = w.product_id

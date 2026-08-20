@@ -320,6 +320,8 @@ ion-app { --background: transparent; background: transparent; }
 .price-results > button > div strong { overflow: hidden; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; }
 .price-results span, .price-results small { margin-top: 3px; color: var(--muted); font-size: 8px; }
 .price-results > button > strong { flex: 0 0 auto; color: #188a6f; font-size: 11px; text-align: right; }
+.price-results > button.wide-result { display: block; }
+.price-results > button.wide-result > div { width: 100%; }
 .price-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 24px; color: var(--muted); font-size: 10px; }
 .price-loading .loading-orb { width: 24px; height: 24px; border-width: 3px; }
 .price-history { margin-top: 15px; padding: 12px; border-radius: 16px; background: #f8f6fb; }
@@ -353,6 +355,18 @@ ion-app { --background: transparent; background: transparent; }
 .scan-product-copy > span { color: #258a72; font-size: 8px; font-weight: 780; letter-spacing: .06em; text-transform: uppercase; }
 .scan-product-copy h3 { margin: 5px 0 4px; font-size: 13px; line-height: 1.35; }
 .scan-product-copy p { margin: 0 0 13px; color: var(--muted); font-size: 9px; }
+.search-offers { display: grid; gap: 5px; margin: 8px 0 13px; }
+.search-offers > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 12px; background: rgba(255,255,255,.78); }
+.search-offers span { min-width: 0; margin: 0; color: inherit; }
+.search-offers span strong, .search-offers span small, .search-offers > div > strong { display: block; }
+.search-offers span strong { font-size: 9px; }
+.search-offers span small { margin-top: 2px; color: var(--muted); font-size: 7px; }
+.search-offers > div > strong { flex: 0 0 auto; color: #188a6f; font-size: 10px; text-align: right; }
+.search-offers > div > strong small { margin-top: 2px; color: #aaa3b8; font-size: 7px; text-decoration: line-through; }
+.search-offers-empty { margin: 8px 0 13px !important; padding: 8px 10px; border-radius: 12px; background: #f7f5fa; text-align: center; }
+.price-results .search-offers { margin-bottom: 0; }
+.price-results .search-offers > div { background: #f7f5fa; }
+.price-results .search-offers span { margin-top: 0; color: inherit; }
 .scan-primary, .scan-secondary, .scan-again, .scan-error button { width: 100%; border: 0; border-radius: 15px; font-weight: 760; }
 .scan-primary { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 13px; color: #fff; background: linear-gradient(145deg, #35b995, #188a6f); font-size: 10px; box-shadow: 0 10px 22px rgba(35,155,124,.18); }
 .scan-primary ion-icon { font-size: 17px; }
