@@ -16,7 +16,8 @@
     "db:migrate": "drizzle-kit migrate",
     "vapid:generate": "node scripts/generate-vapid.mjs",
     "reminders:send": "node scripts/run-jobs.mjs",
-    "prices:import": "node scripts/import-price-data.mjs"
+    "prices:import": "node scripts/import-price-data.mjs",
+    "prices:refresh-external": "node scripts/refresh-external-prices.mjs"
   },
   "dependencies": {
     "@ionic/react": "^8.8.18",

@@ -95,11 +95,63 @@ export const shoppingItems = pgTable("shopping_items", {
   name: text("name").notNull(),
   quantity: text("quantity").notNull().default("1 db"),
   category: text("category").notNull().default("Egyéb"),
+  productId: text("product_id"),
   checked: boolean("checked").notNull().default(false),
   createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const externalProducts = pgTable(
+  "external_products",
+  {
+    productId: text("product_id").primaryKey(),
+    barcode: text("barcode"),
+    productName: text("product_name").notNull(),
+    brand: text("brand"),
+    quantity: text("quantity"),
+    packageSize: numeric("package_size", { precision: 14, scale: 4 }),
+    unit: text("unit"),
+    categoryName: text("category_name").notNull().default("Egyéb"),
+    imageUrl: text("image_url"),
+    source: text("source").notNull(),
+    sourceProductId: text("source_product_id"),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("external_products_name_idx").on(table.productName),
+    index("external_products_barcode_idx").on(table.barcode),
+  ],
+);
+
+export const externalPriceObservations = pgTable(
+  "external_price_observations",
+  {
+    id: serial("id").primaryKey(),
+    productId: text("product_id").notNull().references(() => externalProducts.productId, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    sourceProductId: text("source_product_id"),
+    chainName: text("chain_name").notNull(),
+    price: numeric("price", { precision: 14, scale: 2 }).notNull(),
+    promotionPrice: numeric("promotion_price", { precision: 14, scale: 2 }),
+    promotionLabel: text("promotion_label"),
+    unitPrice: numeric("unit_price", { precision: 14, scale: 2 }),
+    unit: text("unit"),
+    observedOn: date("observed_on", { mode: "string" }).notNull(),
+    validFrom: date("valid_from", { mode: "string" }),
+    validUntil: date("valid_until", { mode: "string" }),
+    sourceUrl: text("source_url"),
+    locationLabel: text("location_label"),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("external_price_daily_idx").on(table.productId, table.source, table.chainName, table.observedOn),
+    index("external_price_product_idx").on(table.productId, table.observedOn),
+  ],
+);
 
 export const priceCatalog = pgTable(
   "price_catalog",

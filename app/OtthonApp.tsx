@@ -74,10 +74,10 @@ type ShoppingItem = {
   priceWatch?: PriceWatchSummary | null;
 };
 
-type PriceWatchSummary = { id: number; productId: string; productName: string | null; targetPrice: string | null; bestPrice: string | null; bestChain: string | null; dataDate: string | null };
-type PriceOffer = { chainName: string; maxPrice: string; maxUnitPrice: string; storeCount: number };
+type PriceWatchSummary = { id: number; productId: string; productName: string | null; targetPrice: string | null; bestPrice: string | null; bestChain: string | null; dataDate: string | null; source?: string | null };
+type PriceOffer = { source: "gvh" | "tesco" | "lidl" | "manual"; chainName: string; maxPrice: string; maxUnitPrice: string | null; storeCount: number; promotionPrice: string | null; promotionLabel: string | null; validUntil: string | null; observedOn: string; locationLabel: string | null };
 type PriceWatchDetail = { id: number; shoppingItemId: number; productId: string; productName: string; categoryName: string; unit: string; packageSize: string; targetPrice: string | null; notifyOnDrop: boolean; dataDate: string | null; offers: PriceOffer[]; history: Array<{ date: string; maxPrice: string }> };
-type PriceSearchResult = { productId: string; productName: string; categoryName: string; unit: string; packageSize: string; bestPrice: string; bestChain: string; chainCount: number; dataDate: string };
+type PriceSearchResult = { productId: string; productName: string; categoryName: string; unit: string; packageSize: string; bestPrice: string | null; bestChain: string | null; chainCount: number; dataDate: string | null; sources: string[]; imageUrl?: string | null };
 
 type Actor = { id: number; username: string; displayName: string; role: "owner" | "member" };
 type AuthMode = "checking" | "setup" | "login" | "authenticated";
@@ -201,6 +201,13 @@ function displayFirstName(actor: Actor | null) {
 function formatForint(value: string | number | null | undefined) {
   if (value == null || value === "") return "–";
   return `${Math.round(Number(value)).toLocaleString("hu-HU")} Ft`;
+}
+
+function priceSourceLabel(source: PriceOffer["source"]) {
+  if (source === "gvh") return "GVH maximumár";
+  if (source === "manual") return "Saját ár";
+  if (source === "tesco") return "Online ár";
+  return "Aktuális akció";
 }
 
 function initialDraft(): Draft {
@@ -436,6 +443,8 @@ export default function OtthonApp() {
   const [scanResults, setScanResults] = useState<PriceSearchResult[]>([]);
   const [scanBusy, setScanBusy] = useState(false);
   const [scanError, setScanError] = useState("");
+  const [manualStore, setManualStore] = useState("Aldi");
+  const [manualPrice, setManualPrice] = useState("");
 
   const loadHousehold = useCallback(async (silent = false) => {
     if (!silent) setSyncing(true);
@@ -611,7 +620,7 @@ export default function OtthonApp() {
     try {
       const result = await apiRequest<{ results: PriceSearchResult[] }>("GET", undefined, `/api/prices?barcode=${encodeURIComponent(code)}`);
       setScanResults(result.results);
-      if (!result.results.length) setScanError("Ez a vonalkód nincs benne a mai GVH árlistában.");
+      if (!result.results.length) setScanError("Ezt a vonalkódot most egyik termékadatbázisban sem találtam meg.");
     } catch (failure) {
       setScanError(failure instanceof Error ? failure.message : "A vonalkód keresése nem sikerült.");
     } finally {
@@ -625,20 +634,11 @@ export default function OtthonApp() {
     if (scanBusy) return;
     setScanBusy(true);
     try {
-      let record: ShoppingItem;
-      if (withPriceWatch) {
-        ({ record } = await apiRequest<{ record: ShoppingItem }>("POST", {
-          action: "addToShopping",
-          productId: product.productId,
-        }, "/api/prices"));
-      } else {
-        ({ record } = await apiRequest<{ record: ShoppingItem }>("POST", {
-          type: "shopping",
-          name: product.productName,
-          quantity: `1 × ${product.packageSize} ${product.unit}`,
-          category: product.categoryName || "Egyéb",
-        }));
-      }
+      const { record } = await apiRequest<{ record: ShoppingItem }>("POST", {
+        action: "addToShopping",
+        productId: product.productId,
+        withPriceWatch,
+      }, "/api/prices");
       setShopping((items) => [record, ...items]);
       setScannerOpen(false);
       setToast(withPriceWatch ? "Listához adva, árfigyeléssel" : "Hozzáadva a bevásárlólistához");
@@ -652,7 +652,7 @@ export default function OtthonApp() {
   function addUnknownBarcodeManually() {
     setScannerOpen(false);
     openAdd("shopping");
-    setToast("Nem találtuk az árlistában — add meg kézzel");
+    setToast("Nem találtuk az adatbázisokban — add meg kézzel");
   }
 
   async function searchPrices(query = priceQuery) {
@@ -661,7 +661,7 @@ export default function OtthonApp() {
     try {
       const result = await apiRequest<{ results: PriceSearchResult[] }>("GET", undefined, `/api/prices?q=${encodeURIComponent(query.trim())}`);
       setPriceResults(result.results);
-      if (!result.results.length) setToast("Nem találtam ilyen terméket a GVH listájában");
+      if (!result.results.length) setToast("Nem találtam ilyen terméket a jelenlegi forrásokban");
     } catch (failure) {
       showFailure(failure);
     } finally {
@@ -688,6 +688,28 @@ export default function OtthonApp() {
     }
   }
 
+  async function recordManualPrice() {
+    if (!priceItem || !priceWatch || !manualPrice.trim()) return;
+    setPriceBusy(true);
+    try {
+      const result = await apiRequest<{ watch: PriceWatchDetail }>("POST", {
+        action: "recordPrice",
+        shoppingItemId: priceItem.id,
+        productId: priceWatch.productId,
+        chainName: manualStore,
+        price: manualPrice,
+      }, "/api/prices");
+      setPriceWatch(result.watch);
+      setManualPrice("");
+      await loadHousehold(true);
+      setToast("Saját ár elmentve");
+    } catch (failure) {
+      showFailure(failure);
+    } finally {
+      setPriceBusy(false);
+    }
+  }
+
   async function savePriceWatch(productId: string) {
     if (!priceItem) return;
     setPriceBusy(true);
@@ -697,6 +719,26 @@ export default function OtthonApp() {
       setPriceResults([]);
       await loadHousehold(true);
       setToast("Árfigyelés bekapcsolva");
+    } catch (failure) {
+      showFailure(failure);
+    } finally {
+      setPriceBusy(false);
+    }
+  }
+
+  async function createManualPriceWatch() {
+    if (!priceItem) return;
+    setPriceBusy(true);
+    try {
+      const result = await apiRequest<{ watch: PriceWatchDetail }>("POST", {
+        action: "createManualWatch",
+        shoppingItemId: priceItem.id,
+        targetPrice,
+      }, "/api/prices");
+      setPriceWatch(result.watch);
+      setPriceResults([]);
+      await loadHousehold(true);
+      setToast("Saját árfigyelés bekapcsolva");
     } catch (failure) {
       showFailure(failure);
     } finally {
@@ -1083,7 +1125,7 @@ export default function OtthonApp() {
               {scanCode && <div className="scan-code"><IonIcon icon={barcodeOutline} /><span>Beolvasva</span><strong>{scanCode}</strong></div>}
               {scanBusy && <div className="price-loading"><span className="loading-orb" />Termék keresése…</div>}
               {!scanBusy && scanResults.length > 0 && <div className="scan-results">{scanResults.map((product) => <article className="scan-product" key={product.productId}>
-                <div className="scan-product-copy"><span>{product.categoryName}</span><h3>{product.productName}</h3><p>{product.packageSize} {product.unit} · max. {formatForint(product.bestPrice)} · {product.bestChain}</p></div>
+                <div className="scan-product-copy"><span>{product.sources.join(" · ")}</span><h3>{product.productName}</h3><p>{product.packageSize} {product.unit} · {product.bestPrice ? `${formatForint(product.bestPrice)} · ${product.bestChain}` : "termék felismerve, aktuális ár még nincs"}</p></div>
                 <button type="button" className="scan-primary" onClick={() => void addScannedProduct(product, true)}><IonIcon icon={pricetagOutline} /> Listához + árfigyelés</button>
                 <button type="button" className="scan-secondary" onClick={() => void addScannedProduct(product, false)}>Csak a listához</button>
               </article>)}</div>}
@@ -1097,18 +1139,20 @@ export default function OtthonApp() {
           <div className="sheet-backdrop" role="presentation" onMouseDown={() => !priceBusy && setPriceItem(null)}>
             <section className="add-sheet price-sheet" role="dialog" aria-modal="true" aria-labelledby="price-title" onMouseDown={(event) => event.stopPropagation()}>
               <div className="sheet-handle" />
-              <div className="sheet-heading"><div><span className="eyebrow">GVH Árfigyelő</span><h2 id="price-title">{priceItem.name}</h2></div><button type="button" className="icon-button subtle" onClick={() => setPriceItem(null)} aria-label="Bezárás"><IonIcon icon={close} /></button></div>
+              <div className="sheet-heading"><div><span className="eyebrow">Családi árfigyelő</span><h2 id="price-title">{priceItem.name}</h2></div><button type="button" className="icon-button subtle" onClick={() => setPriceItem(null)} aria-label="Bezárás"><IonIcon icon={close} /></button></div>
               {priceWatch ? <>
-                <div className="tracked-product"><IonIcon icon={pricetagOutline} /><div><strong>{priceWatch.productName}</strong><span>{priceWatch.categoryName} · {priceWatch.offers.length} üzletlánc</span></div></div>
-                <div className="price-offers">{priceWatch.offers.map((offer, index) => <div className={index === 0 ? "price-offer best" : "price-offer"} key={offer.chainName}><div><strong>{offer.chainName}</strong><span>{offer.storeCount} boltban · legfeljebb {formatForint(offer.maxUnitPrice)}/{priceWatch.unit}</span></div><strong>max. {formatForint(offer.maxPrice)}</strong></div>)}</div>
+                <div className="tracked-product"><IonIcon icon={pricetagOutline} /><div><strong>{priceWatch.productName}</strong><span>{priceWatch.categoryName} · {priceWatch.offers.length || "nincs még"} ismert ár</span></div></div>
+                {priceWatch.offers.length ? <div className="price-offers">{priceWatch.offers.map((offer, index) => <div className={index === 0 ? "price-offer best" : "price-offer"} key={`${offer.source}-${offer.chainName}`}><div><strong>{offer.chainName}<small className={`price-source ${offer.source}`}>{priceSourceLabel(offer.source)}</small></strong><span>{offer.source === "gvh" ? `${offer.storeCount} bolt · legfeljebb ${formatForint(offer.maxUnitPrice)}/${priceWatch.unit}` : offer.promotionLabel || offer.locationLabel || `Frissítve: ${offer.observedOn}`}{offer.validUntil ? ` · ${offer.validUntil}-ig` : ""}</span></div><strong>{offer.source === "gvh" ? "max. " : ""}{formatForint(offer.promotionPrice || offer.maxPrice)}{offer.promotionPrice && <small className="old-price">{formatForint(offer.maxPrice)}</small>}</strong></div>)}</div> : <div className="price-empty">A terméket figyeljük; amint valamelyik forrás árat ad hozzá, itt megjelenik.</div>}
                 <label className="price-target"><span>Célár – ha ezt eléri, szólunk</span><div><input inputMode="decimal" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="pl. 5999" /><button type="button" onClick={() => void savePriceWatch(priceWatch.productId)} disabled={priceBusy}>Mentés</button></div></label>
-                {priceWatch.history.length > 1 && <div className="price-history"><span>Legutóbbi {priceWatch.history.length} nap · maximumár</span><div>{priceWatch.history.map((point) => <i key={point.date} title={`${point.date}: max. ${formatForint(point.maxPrice)}`} style={{ height: `${Math.max(12, Math.min(100, 100 - (Number(point.maxPrice) / Math.max(...priceWatch.history.map((item) => Number(item.maxPrice))) - .5) * 120))}%` }} />)}</div></div>}
+                {priceWatch.history.length > 1 && <div className="price-history"><span>Legutóbbi {priceWatch.history.length} nap · legjobb ismert ár</span><div>{priceWatch.history.map((point) => <i key={point.date} title={`${point.date}: ${formatForint(point.maxPrice)}`} style={{ height: `${Math.max(12, Math.min(100, 100 - (Number(point.maxPrice) / Math.max(...priceWatch.history.map((item) => Number(item.maxPrice))) - .5) * 120))}%` }} />)}</div></div>}
+                <div className="manual-price"><span>Ennyiért vettem</span><div><select value={manualStore} onChange={(event) => setManualStore(event.target.value)}><option>Tesco</option><option>Lidl</option><option>Aldi</option><option>dm</option><option>Rossmann</option><option>Egyéb</option></select><input inputMode="decimal" value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} placeholder="ár (Ft)" /><button type="button" onClick={() => void recordManualPrice()} disabled={priceBusy || !manualPrice.trim()}>Mentés</button></div><small>Az Aldi és a helyi boltok blokkon látott ára így bekerül a saját előzménybe.</small></div>
                 <button type="button" className="sheet-delete-button" onClick={() => void removePriceWatch()} disabled={priceBusy}><IonIcon icon={trashOutline} /> Árfigyelés kikapcsolása</button>
               </> : <>
                 <div className="price-search"><IonIcon icon={searchOutline} /><input value={priceQuery} onChange={(event) => setPriceQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchPrices(); } }} placeholder="Termék vagy kategória" /><button type="button" onClick={() => void searchPrices()} disabled={priceBusy || priceQuery.trim().length < 2}>Keresés</button></div>
                 <label className="price-target"><span>Opcionális célár</span><input inputMode="decimal" value={targetPrice} onChange={(event) => setTargetPrice(event.target.value)} placeholder="pl. 5999" /></label>
-                <div className="price-results">{priceResults.map((result) => <button type="button" key={result.productId} onClick={() => void savePriceWatch(result.productId)} disabled={priceBusy}><div><strong>{result.productName}</strong><span>{result.categoryName} · {result.chainCount} lánc</span></div><strong>max. {formatForint(result.bestPrice)}<small>{result.bestChain}</small></strong></button>)}</div>
+                <div className="price-results">{priceResults.map((result) => <button type="button" key={result.productId} onClick={() => void savePriceWatch(result.productId)} disabled={priceBusy}><div><strong>{result.productName}</strong><span>{result.sources.join(" · ")} · {result.categoryName}</span></div><strong>{result.bestPrice ? formatForint(result.bestPrice) : "Figyelhető"}<small>{result.bestChain || "ár nélkül"}</small></strong></button>)}</div>
                 {priceBusy && <div className="price-loading"><span className="loading-orb" />Árak keresése…</div>}
+                {!priceBusy && <button type="button" className="manual-watch-button" onClick={() => void createManualPriceWatch()}><IonIcon icon={pricetagOutline} /> Saját árfigyelés ehhez a tételhez</button>}
               </>}
             </section>
           </div>
@@ -1512,7 +1556,7 @@ function ShoppingView({ groups, remaining, onToggle, onEdit, onPrice, onDelete, 
         {Object.entries(groups).map(([category, items]) => <div className="shopping-group" key={category}>
           <h2>{category}<span>{items.filter((item) => !item.checked).length}</span></h2>
           {items.map((item) => <div className={item.checked ? "shopping-row checked" : "shopping-row"} key={item.id}>
-            <button type="button" className="shopping-toggle" onClick={() => onToggle(item.id)}><span className="shop-check"><IonIcon icon={checkmark} /></span><span className="shopping-name"><strong>{item.name}</strong>{item.priceWatch?.bestPrice && <small><IonIcon icon={pricetagOutline} /> max. {formatForint(item.priceWatch.bestPrice)} · {item.priceWatch.bestChain}</small>}</span><span>{item.quantity}</span></button>
+            <button type="button" className="shopping-toggle" onClick={() => onToggle(item.id)}><span className="shop-check"><IonIcon icon={checkmark} /></span><span className="shopping-name"><strong>{item.name}</strong>{item.priceWatch?.bestPrice && <small><IonIcon icon={pricetagOutline} /> {item.priceWatch.source === "gvh" ? "max. " : ""}{formatForint(item.priceWatch.bestPrice)} · {item.priceWatch.bestChain}</small>}</span><span>{item.quantity}</span></button>
             <div className="item-actions"><button type="button" className={item.priceWatch ? "price-item active" : "price-item"} onClick={() => onPrice(item)} aria-label={`${item.name} árfigyelése`}><IonIcon icon={pricetagOutline} /></button><button type="button" className="edit-item" onClick={() => onEdit(item)} aria-label={`${item.name} szerkesztése`}><IonIcon icon={createOutline} /></button><button type="button" className="delete-item" onClick={() => onDelete(item.id, item.name)} aria-label={`${item.name} törlése`}><IonIcon icon={trashOutline} /></button></div>
           </div>)}
         </div>)}

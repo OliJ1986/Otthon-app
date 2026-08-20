@@ -20,15 +20,21 @@ test("az emlékeztető külön, befejeződő cron feladat", async () => {
   assert.equal(config.deploy.restartPolicyType, "NEVER");
 });
 
-test("a cron az események mellett a GVH napi árlistát is feldolgozza", async () => {
+test("a cron az események mellett a napi árforrásokat is feldolgozza", async () => {
   const packageJson = await json("package.json");
   assert.equal(packageJson.scripts["reminders:send"], "node scripts/run-jobs.mjs");
   assert.equal(packageJson.scripts["prices:import"], "node scripts/import-price-data.mjs");
   const importer = await readFile(new URL("../scripts/import-price-data.mjs", import.meta.url), "utf8");
+  const externalRefresh = await readFile(new URL("../scripts/refresh-external-prices.mjs", import.meta.url), "utf8");
+  const runner = await readFile(new URL("../scripts/run-jobs.mjs", import.meta.url), "utf8");
   const instrumentation = await readFile(new URL("../lib/background-jobs.ts", import.meta.url), "utf8");
   assert.match(importer, /arfigyelo_napi_termekadatok\.xlsx/);
   assert.match(importer, /price_watch_history/);
   assert.match(importer, /05:15/);
+  assert.match(externalRefresh, /external_price_observations/);
+  assert.match(externalRefresh, /xapi\.tesco\.com/);
+  assert.match(externalRefresh, /lidl\.hu\/q\/api\/search/);
+  assert.match(runner, /refresh-external-prices\.mjs/);
   assert.match(instrumentation, /15 \* 60_000/);
 });
 
@@ -39,9 +45,23 @@ test("az árfigyelő konzervatívan a lánconkénti maximumárral számol", asyn
   assert.match(importer, /min\(pc\.max_price::numeric\) AS price/);
   assert.match(importer, /ORDER BY max_price::numeric ASC/);
   assert.match(importer, /pc\.max_price, pc\.max_unit_price/);
-  assert.match(priceApi, /min\(max_price::numeric\) AS "bestPrice"/);
-  assert.match(priceApi, /ORDER BY pc\.max_price::numeric ASC/);
-  assert.match(householdApi, /ORDER BY max_price::numeric ASC/);
+  assert.match(priceApi, /min\(max_price::numeric\)::text AS "bestPrice"/);
+  assert.match(priceApi, /ORDER BY max_price::numeric ASC/);
+  assert.match(householdApi, /ORDER BY max_price ASC NULLS LAST/);
+});
+
+test("a többforrású keresés a terméket és az ár eredetét külön kezeli", async () => {
+  const sources = await readFile(new URL("../lib/product-sources.ts", import.meta.url), "utf8");
+  const priceApi = await readFile(new URL("../app/api/prices/route.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  assert.match(sources, /world\.openfoodfacts\.org\/api\/v2\/product/);
+  assert.match(sources, /operationName: "Search"/);
+  assert.match(sources, /promotionPrice/);
+  assert.match(priceApi, /payload\?\.action === "recordPrice"/);
+  assert.match(priceApi, /payload\?\.action === "createManualWatch"/);
+  assert.match(priceApi, /C(?:OALESCE|oalesce)\(promotion_price, price\)/i);
+  assert.match(schema, /external_price_observations/);
+  assert.match(schema, /validUntil: date\("valid_until"/);
 });
 
 test("a vonalkód egy lépésben terméket és árfigyelést hoz létre", async () => {

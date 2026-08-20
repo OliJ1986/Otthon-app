@@ -298,6 +298,13 @@ ion-app { --background: transparent; background: transparent; }
 .price-offer div strong { font-size: 11px; }
 .price-offer div span { margin-top: 3px; color: var(--muted); font-size: 8px; }
 .price-offer > strong { flex: 0 0 auto; color: #188a6f; font-size: 13px; }
+.price-offer > strong small { display: block; margin-top: 3px; color: #9b94a8; font-size: 8px; font-weight: 650; text-decoration: line-through; }
+.price-source { display: inline-block; margin-left: 6px; padding: 2px 5px; border-radius: 7px; color: #635a72; background: #f0edf5; font-size: 7px; font-weight: 760; vertical-align: 1px; }
+.price-source.tesco { color: #1650a0; background: #eaf2ff; }
+.price-source.lidl { color: #9b5a00; background: #fff3cf; }
+.price-source.manual { color: #8c4e31; background: #fff0e6; }
+.price-source.gvh { color: #227562; background: #e3f6ef; }
+.price-empty { padding: 14px; border: 1px dashed #d8d1e4; border-radius: 16px; color: var(--muted); background: #faf9fc; font-size: 9px; line-height: 1.5; text-align: center; }
 .price-target { display: block; margin-top: 15px; color: var(--muted); font-size: 9px; font-weight: 720; }
 .price-target > span { display: block; margin: 0 0 7px 3px; }
 .price-target > div { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
@@ -319,6 +326,14 @@ ion-app { --background: transparent; background: transparent; }
 .price-history > span { display: block; margin-bottom: 9px; color: var(--muted); font-size: 8px; font-weight: 720; }
 .price-history > div { height: 54px; display: flex; align-items: flex-end; gap: 3px; }
 .price-history i { flex: 1; min-width: 3px; border-radius: 4px 4px 1px 1px; background: linear-gradient(#8d72ff, #6545e6); }
+.manual-price { margin-top: 14px; padding: 13px; border-radius: 17px; background: #fff8f2; }
+.manual-price > span { display: block; margin-bottom: 7px; color: #8c5e42; font-size: 9px; font-weight: 760; }
+.manual-price > div { display: grid; grid-template-columns: minmax(82px, .75fr) 1fr auto; gap: 6px; }
+.manual-price select, .manual-price input { min-width: 0; padding: 10px; border: 1px solid #ead8ca; border-radius: 12px; outline: 0; color: var(--ink); background: #fff; font-size: 11px; }
+.manual-price button { padding: 0 11px; border: 0; border-radius: 12px; color: #fff; background: #b66c42; font-size: 9px; font-weight: 760; }
+.manual-price button:disabled { opacity: .4; }
+.manual-price > small { display: block; margin-top: 7px; color: #998070; font-size: 8px; line-height: 1.4; }
+.manual-watch-button { width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 13px; padding: 12px; border: 1px dashed #d8c7b9; border-radius: 15px; color: #8c5e42; background: #fff8f2; font-size: 9px; font-weight: 760; }
 
 .scanner-sheet { max-height: min(92dvh, 820px); }
 .scanner-camera { position: relative; min-height: 290px; overflow: hidden; margin-top: 17px; border-radius: 23px; color: #fff; background: #171420; }

@@ -15,6 +15,13 @@
       "when": 1787136364049,
       "tag": "0001_groovy_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787226102213,
+      "tag": "0002_multi_source_prices",
+      "breakpoints": true
     }
   ]
 }

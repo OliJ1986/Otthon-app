@@ -49,6 +49,7 @@ type ShoppingRow = {
     bestPrice: string | null;
     bestChain: string | null;
     dataDate: string | null;
+    source: string | null;
   } | null;
 };
 
@@ -135,15 +136,34 @@ export async function GET(request: NextRequest) {
             'targetPrice', w.target_price,
             'bestPrice', best.max_price,
             'bestChain', best.chain_name,
-            'dataDate', best.data_date
+            'dataDate', best.data_date,
+            'source', best.source
           ) END AS "priceWatch"
         FROM shopping_items s
         LEFT JOIN price_watches w ON w.shopping_item_id = s.id
         LEFT JOIN LATERAL (
-          SELECT product_name, max_price, chain_name, data_date
-          FROM price_catalog
-          WHERE product_id = w.product_id
-          ORDER BY max_price::numeric ASC, chain_name ASC
+          SELECT product_name, max_price, chain_name, data_date, source
+          FROM (
+            SELECT product_name, max_price::numeric AS max_price, chain_name,
+              data_date, 'gvh'::text AS source
+            FROM price_catalog WHERE product_id = w.product_id
+            UNION ALL
+            SELECT product.product_name,
+              COALESCE(observation.promotion_price, observation.price)::numeric AS max_price,
+              observation.chain_name, observation.observed_on AS data_date,
+              observation.source
+            FROM external_products product
+            LEFT JOIN LATERAL (
+              SELECT source, chain_name, price, promotion_price, observed_on
+              FROM external_price_observations
+              WHERE product_id = product.product_id
+                AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
+              ORDER BY COALESCE(promotion_price, price)::numeric ASC, observed_on DESC
+              LIMIT 1
+            ) observation ON true
+            WHERE product.product_id = w.product_id
+          ) prices
+          ORDER BY max_price ASC NULLS LAST, chain_name ASC
           LIMIT 1
         ) best ON true
         ORDER BY s.checked ASC, s.id DESC

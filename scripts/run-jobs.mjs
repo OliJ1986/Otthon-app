@@ -9,4 +9,5 @@ function run(script, required) {
 }
 
 run("scripts/import-price-data.mjs", false);
+run("scripts/refresh-external-prices.mjs", false);
 run("scripts/send-reminders.mjs", true);
