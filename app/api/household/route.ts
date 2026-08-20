@@ -29,6 +29,7 @@ type ChoreRow = {
   room: string;
   assignee: string;
   dueLabel: string;
+  dueDate: string;
   repeatRule: RepeatRule;
   done: boolean;
   completedOn: string | null;
@@ -84,6 +85,40 @@ function recurringChoreDone(completedOn: string | null, rule: RepeatRule, today:
   return completedOn.slice(0, 7) === today.slice(0, 7);
 }
 
+function addDaysIso(dateIso: string, days: number) {
+  const date = new Date(`${dateIso}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function nextMonthIso(dateIso: string) {
+  const [year, month, day] = dateIso.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month, 1, 12));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0, 12)).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return target.toISOString().slice(0, 10);
+}
+
+function nextChoreDueDate(today: string, rule: RepeatRule) {
+  if (rule === "daily") return addDaysIso(today, 1);
+  if (rule === "weekly") return addDaysIso(today, 7);
+  if (rule === "monthly") return nextMonthIso(today);
+  return today;
+}
+
+function dateValue(value: unknown, fallback: string) {
+  const candidate = textValue(value, fallback, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : fallback;
+}
+
+function normalizeChore(row: ChoreRow, today: string) {
+  return {
+    ...row,
+    recurring: row.repeatRule !== "none",
+    done: row.repeatRule !== "none" ? recurringChoreDone(row.completedOn, row.repeatRule, today) : row.done,
+  };
+}
+
 function unauthorized() {
   return NextResponse.json({ error: "Bejelentkezés szükséges." }, { status: 401 });
 }
@@ -129,8 +164,9 @@ export async function GET(request: NextRequest) {
       ` as unknown as Promise<EventRow[]>,
       sql`
         SELECT id, title, room, assignee, due_label AS "dueLabel",
-          repeat_rule AS "repeatRule", done, completed_on::text AS "completedOn", tone
-        FROM chores ORDER BY done ASC, id DESC
+          due_date::text AS "dueDate", repeat_rule AS "repeatRule", done,
+          completed_on::text AS "completedOn", tone
+        FROM chores ORDER BY id DESC
       ` as unknown as Promise<ChoreRow[]>,
       sql`
         SELECT s.id, s.name, s.quantity, s.category, s.checked,
@@ -185,14 +221,15 @@ export async function GET(request: NextRequest) {
       ` as unknown as Promise<Array<{ id: number; name: string; tone: string; memberType: string; sortOrder: number }>>,
     ]);
     const today = todayInBudapest();
+    const normalizedChores = choreRows
+      .map((row) => normalizeChore(row, today))
+      .sort((left, right) => Number(left.done) - Number(right.done)
+        || left.dueDate.localeCompare(right.dueDate)
+        || right.id - left.id);
     return NextResponse.json({
       actor,
       events: eventRows.map(normalizeEvent),
-      chores: choreRows.map((row) => ({
-        ...row,
-        recurring: row.repeatRule !== "none",
-        done: row.repeatRule !== "none" ? recurringChoreDone(row.completedOn, row.repeatRule, today) : row.done,
-      })),
+      chores: normalizedChores,
       shopping: shoppingRows,
       familyMembers: familyRows,
       syncedAt: new Date().toISOString(),
@@ -251,14 +288,16 @@ export async function POST(request: NextRequest) {
       const title = textValue(payload.title);
       if (!title) return invalid("A feladat neve kötelező.");
       const repeatRule = repeatRuleValue(payload.repeatRule);
+      const dueDate = dateValue(payload.dueDate, todayInBudapest());
       const rows = await sql`
-        INSERT INTO chores (title, room, assignee, due_label, repeat_rule, tone, created_by)
+        INSERT INTO chores (title, room, assignee, due_label, due_date, repeat_rule, tone, created_by)
         VALUES (
           ${title}, ${textValue(payload.room, "Otthon", 50)}, ${textValue(payload.assignee, "Közös", 50)},
-          ${textValue(payload.dueLabel, "Ma", 50)}, ${repeatRule}, 'mint', ${actor.id}
+          ${textValue(payload.dueLabel, "Ma", 50)}, ${dueDate}, ${repeatRule}, 'mint', ${actor.id}
         )
         RETURNING id, title, room, assignee, due_label AS "dueLabel",
-          repeat_rule AS "repeatRule", done, completed_on::text AS "completedOn", tone
+          due_date::text AS "dueDate", repeat_rule AS "repeatRule", done,
+          completed_on::text AS "completedOn", tone
       ` as unknown as ChoreRow[];
       await sendActivityPush(actor.id, {
         title: "Új házimunka",
@@ -266,7 +305,7 @@ export async function POST(request: NextRequest) {
         url: "/",
         tag: `chore-created-${rows[0].id}`,
       });
-      return NextResponse.json({ record: { ...rows[0], recurring: repeatRule !== "none", done: false } }, { status: 201 });
+      return NextResponse.json({ record: normalizeChore(rows[0], todayInBudapest()) }, { status: 201 });
     }
 
     if (payload.type === "shopping") {
@@ -345,7 +384,8 @@ export async function PATCH(request: NextRequest) {
             FROM previous
             WHERE chores.id = previous.id
             RETURNING chores.id, chores.title, chores.room, chores.assignee,
-              chores.due_label AS "dueLabel", chores.repeat_rule AS "repeatRule",
+              chores.due_label AS "dueLabel", chores.due_date::text AS "dueDate",
+              chores.repeat_rule AS "repeatRule",
               chores.done, chores.completed_on::text AS "completedOn", chores.tone,
               previous.assignee AS "previousAssignee"
           )
@@ -371,60 +411,73 @@ export async function PATCH(request: NextRequest) {
           }
         }
         return NextResponse.json({ record: {
-          ...row,
-          recurring: row.repeatRule !== "none",
-          done: row.repeatRule !== "none" ? recurringChoreDone(row.completedOn, row.repeatRule, todayInBudapest()) : row.done,
+          ...normalizeChore(row, todayInBudapest()),
+          previousAssignee: row.previousAssignee,
         } });
       }
       if (payload.action === "update") {
         const title = textValue(payload.title);
         if (!title) return invalid("A feladat neve kötelező.");
         const repeatRule = repeatRuleValue(payload.repeatRule);
+        const dueDate = dateValue(payload.dueDate, todayInBudapest());
         const rows = await sql`
           UPDATE chores SET
             title = ${title}, room = ${textValue(payload.room, "Otthon", 50)},
             assignee = ${textValue(payload.assignee, "Közös", 50)},
             due_label = ${textValue(payload.dueLabel, "Ma", 50)},
-            repeat_rule = ${repeatRule}, updated_at = now()
+            due_date = ${dueDate}, repeat_rule = ${repeatRule}, updated_at = now()
           WHERE id = ${id}
           RETURNING id, title, room, assignee, due_label AS "dueLabel",
-            repeat_rule AS "repeatRule", done, completed_on::text AS "completedOn", tone
+            due_date::text AS "dueDate", repeat_rule AS "repeatRule", done,
+            completed_on::text AS "completedOn", tone
         ` as unknown as ChoreRow[];
         if (!rows[0]) return NextResponse.json({ error: "A feladat nem található." }, { status: 404 });
-        return NextResponse.json({ record: {
-          ...rows[0],
-          recurring: repeatRule !== "none",
-          done: repeatRule !== "none" ? recurringChoreDone(rows[0].completedOn, repeatRule, todayInBudapest()) : rows[0].done,
-        } });
+        return NextResponse.json({ record: normalizeChore(rows[0], todayInBudapest()) });
       }
       const rows = await sql`SELECT repeat_rule AS "repeatRule" FROM chores WHERE id = ${id} LIMIT 1` as unknown as Array<{ repeatRule: RepeatRule }>;
       const current = rows[0];
       if (!current) return NextResponse.json({ error: "A feladat nem található." }, { status: 404 });
       const nextDone = payload.done === true;
-      let changed: Array<{ title: string }>;
+      const today = todayInBudapest();
+      let changed: ChoreRow[];
       if (current.repeatRule !== "none") {
-        const completedOn = nextDone ? todayInBudapest() : null;
+        const completedOn = nextDone ? today : null;
+        const dueDate = nextDone ? nextChoreDueDate(today, current.repeatRule) : today;
         changed = await sql`
-          UPDATE chores SET completed_on = ${completedOn}, updated_at = now()
-          WHERE id = ${id} AND completed_on IS DISTINCT FROM ${completedOn}
-          RETURNING title
-        ` as unknown as Array<{ title: string }>;
+          UPDATE chores SET completed_on = ${completedOn}, due_date = ${dueDate}, updated_at = now()
+          WHERE id = ${id} AND (completed_on IS DISTINCT FROM ${completedOn} OR due_date IS DISTINCT FROM ${dueDate})
+          RETURNING id, title, room, assignee, due_label AS "dueLabel",
+            due_date::text AS "dueDate", repeat_rule AS "repeatRule", done,
+            completed_on::text AS "completedOn", tone
+        ` as unknown as ChoreRow[];
       } else {
         changed = await sql`
-          UPDATE chores SET done = ${nextDone}, updated_at = now()
+          UPDATE chores SET done = ${nextDone}, completed_on = ${nextDone ? today : null}, updated_at = now()
           WHERE id = ${id} AND done IS DISTINCT FROM ${nextDone}
-          RETURNING title
-        ` as unknown as Array<{ title: string }>;
+          RETURNING id, title, room, assignee, due_label AS "dueLabel",
+            due_date::text AS "dueDate", repeat_rule AS "repeatRule", done,
+            completed_on::text AS "completedOn", tone
+        ` as unknown as ChoreRow[];
       }
       if (nextDone && changed[0]) {
         await sendActivityPush(actor.id, {
           title: "Házimunka elkészült",
           body: `${actor.displayName} elkészítette: ${changed[0].title}`,
           url: "/",
-          tag: `chore-completed-${id}-${todayInBudapest()}`,
+          tag: `chore-completed-${id}-${today}`,
         });
       }
-      return NextResponse.json({ ok: true });
+      if (!changed[0]) {
+        const rows = await sql`
+          SELECT id, title, room, assignee, due_label AS "dueLabel",
+            due_date::text AS "dueDate", repeat_rule AS "repeatRule", done,
+            completed_on::text AS "completedOn", tone
+          FROM chores WHERE id = ${id} LIMIT 1
+        ` as unknown as ChoreRow[];
+        if (!rows[0]) return NextResponse.json({ error: "A feladat nem található." }, { status: 404 });
+        return NextResponse.json({ record: normalizeChore(rows[0], today) });
+      }
+      return NextResponse.json({ record: normalizeChore(changed[0], today) });
     }
     if (payload.type === "shopping") {
       if (payload.action === "update") {

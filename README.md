@@ -6,7 +6,7 @@ Saját családi használatra készült, iPhone-ra optimalizált PWA. Egy helyen 
 
 - közös naptár személyenkénti színekkel és ismétlődő eseményekkel;
 - indulási idő, sofőr, helyszín és orvosi/iskolai eseménytípus;
-- ismétlődő házimunkák és közös bevásárlólista, családi aktivitásértesítésekkel;
+- dátumozott, automatikusan továbbvitt és ismétlődő házimunkák, valamint közös bevásárlólista családi aktivitásértesítésekkel;
 - vonalkódos termékfelismerés és többforrású árfigyelés (GVH, Tesco, Lidl, saját árak);
 - céláras értesítés, Clubcard-/akciós érvényesség és napi ártörténet;
 - gyors, szöveges bevitel magyar dátum- és időfelismeréssel;

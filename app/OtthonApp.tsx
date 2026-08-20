@@ -59,6 +59,8 @@ type Chore = {
   room: string;
   assignee: string;
   dueLabel: string;
+  dueDate: string;
+  completedOn: string | null;
   recurring: boolean;
   repeatRule: RepeatRule;
   done: boolean;
@@ -114,6 +116,7 @@ type Draft = {
   room: string;
   assignee: string;
   dueLabel: string;
+  dueDate: string;
   repeatRule: RepeatRule;
   quantity: string;
   category: string;
@@ -204,6 +207,30 @@ function formatForint(value: string | number | null | undefined) {
   return `${Math.round(Number(value)).toLocaleString("hu-HU")} Ft`;
 }
 
+function isoDayDistance(fromIso: string, toIso: string) {
+  return Math.round((Date.parse(`${toIso}T12:00:00Z`) - Date.parse(`${fromIso}T12:00:00Z`)) / 86_400_000);
+}
+
+function choreDueText(chore: Chore) {
+  const today = localIsoDate();
+  const distance = isoDayDistance(chore.dueDate, today);
+  if (!chore.done && distance === 1) return "Tegnapról áthozva";
+  if (!chore.done && distance > 1) return `${distance} napja elmaradt`;
+  if (chore.done && !chore.recurring && chore.completedOn === today) return "Ma elkészült";
+  const dateLabel = chore.dueDate === today ? "ma"
+    : chore.dueDate === addDays(today, 1) ? "holnap"
+      : new Intl.DateTimeFormat("hu-HU", { month: "short", day: "numeric" }).format(dateFromIso(chore.dueDate));
+  if (chore.done && chore.recurring) return `Következő: ${dateLabel}`;
+  if (chore.dueDate === today) return chore.dueLabel || "Ma";
+  return dateLabel.slice(0, 1).toUpperCase() + dateLabel.slice(1);
+}
+
+function sortChoreList(items: Chore[]) {
+  return [...items].sort((left, right) => Number(left.done) - Number(right.done)
+    || left.dueDate.localeCompare(right.dueDate)
+    || right.id - left.id);
+}
+
 function priceSourceLabel(source: PriceOffer["source"]) {
   if (source === "gvh") return "GVH maximumár";
   if (source === "manual") return "Saját ár";
@@ -225,7 +252,8 @@ function initialDraft(): Draft {
     reminderEnabled: true,
     room: "Otthon",
     assignee: "Közös",
-    dueLabel: "Ma",
+    dueLabel: "",
+    dueDate: localIsoDate(),
     repeatRule: "none",
     quantity: "1 db",
     category: "Egyéb",
@@ -290,7 +318,7 @@ function parseQuickCapture(value: string, preferredMode: AddMode): QuickCaptureR
     || /\b(?:ma|holnap|holnaputan|hetfo|kedd|szerda|csutortok|pentek|szombat|vasarnap)\b/.test(normalized)
     || /\b([01]?\d|2[0-3])(?:(?:[:.])[0-5]\d|\s*(?:ora(?:kor)?|-?kor))\b/.test(normalized);
   const choreSignal = /(porszivoz|felmos|mosogatas|mosogatni|mosas\b|mosni|takarit|szemetet|agynemucsere|portorles|ablakpucol)/.test(normalized);
-  const mode: AddMode = eventSignal ? "event" : choreSignal ? "chore" : preferredMode;
+  const mode: AddMode = choreSignal ? "chore" : eventSignal ? "event" : preferredMode;
 
   if (mode === "shopping") {
     const parts = value.split(/[,;]|\s+és\s+/i).map((item) => item.trim()).filter(Boolean);
@@ -344,7 +372,9 @@ function parseQuickCapture(value: string, preferredMode: AddMode): QuickCaptureR
       title: title || "Új házimunka",
       assignee: personFromQuickText(value) === "Család" ? "Közös" : personFromQuickText(value),
       room,
-      dueLabel: normalized.includes("holnap") ? "Holnap" : "Ma",
+      dueDate: /\b(?:ma|holnaputan|holnap|hetfo|kedd|szerda|csutortok|pentek|szombat|vasarnap)\b/.test(normalized)
+        ? dateFromQuickText(value)
+        : localIsoDate(),
       repeatRule,
     },
   };
@@ -532,9 +562,11 @@ export default function OtthonApp() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const remainingChores = chores.filter((item) => !item.done).length;
+  const today = localIsoDate();
+  const todayChores = chores.filter((item) => item.done ? item.completedOn === today : item.dueDate <= today);
+  const remainingChores = todayChores.filter((item) => !item.done).length;
   const remainingShopping = shopping.filter((item) => !item.checked).length;
-  const choreProgress = chores.length ? Math.round(((chores.length - remainingChores) / chores.length) * 100) : 0;
+  const choreProgress = todayChores.length ? Math.round(((todayChores.length - remainingChores) / todayChores.length) * 100) : 0;
   const shoppingGroups = useMemo(() => {
     return shopping.reduce<Record<string, ShoppingItem[]>>((groups, item) => {
       (groups[item.category] ||= []).push(item);
@@ -554,7 +586,8 @@ export default function OtthonApp() {
     const nextDone = !current.done;
     setChores((items) => items.map((item) => item.id === id ? { ...item, done: nextDone } : item));
     try {
-      await apiRequest("PATCH", { type: "chore", id, done: nextDone });
+      const { record } = await apiRequest<{ record: Chore }>("PATCH", { type: "chore", id, done: nextDone });
+      setChores((items) => sortChoreList(items.map((item) => item.id === id ? record : item)));
       setToast(nextDone ? "Feladat kész" : "Feladat visszanyitva");
     } catch (failure) {
       setChores((items) => items.map((item) => item.id === id ? current : item));
@@ -869,7 +902,8 @@ export default function OtthonApp() {
       title: chore.title,
       room: chore.room,
       assignee: chore.assignee,
-      dueLabel: chore.dueLabel,
+      dueLabel: chore.dueLabel === "Ma" ? "" : chore.dueLabel,
+      dueDate: chore.dueDate,
       repeatRule: chore.repeatRule,
     });
     setQuickText("");
@@ -976,9 +1010,10 @@ export default function OtthonApp() {
           room: draft.room,
           assignee: draft.assignee,
           dueLabel: draft.dueLabel,
+          dueDate: draft.dueDate,
           repeatRule: draft.repeatRule,
         });
-        setChores((items) => editingItemId ? items.map((item) => item.id === editingItemId ? record : item) : [record, ...items]);
+        setChores((items) => sortChoreList(editingItemId ? items.map((item) => item.id === editingItemId ? record : item) : [record, ...items]));
         setToast(editingItemId ? "Házimunka módosítva" : "Új házimunka felvéve");
       } else {
         const { record } = await apiRequest<{ record: ShoppingItem }>(editingItemId ? "PATCH" : "POST", {
@@ -1012,7 +1047,7 @@ export default function OtthonApp() {
             <>
               {tab === "today" && (
                 <TodayView
-                  actor={actor} events={visibleEvents} chores={chores} shopping={shopping}
+                  actor={actor} events={visibleEvents} chores={todayChores} shopping={shopping}
                   remainingChores={remainingChores} remainingShopping={remainingShopping}
                   syncing={syncing} onTab={setTab} onToggleChore={toggleChore}
                   notificationsEnabled={notificationsEnabled} onEnableNotifications={enableNotifications}
@@ -1106,7 +1141,8 @@ export default function OtthonApp() {
                 {addMode === "chore" && <div className="form-grid">
                   <label><span>Helyiség</span><input value={draft.room} onChange={(inputEvent) => updateDraft("room", inputEvent.target.value)} /></label>
                   <label><span>Felelős</span><input value={draft.assignee} onChange={(inputEvent) => updateDraft("assignee", inputEvent.target.value)} /></label>
-                  <label className="wide"><span>Határidő</span><input value={draft.dueLabel} onChange={(inputEvent) => updateDraft("dueLabel", inputEvent.target.value)} placeholder="pl. Ma · 18:00" /></label>
+                  <label><span>Esedékes</span><input type="date" value={draft.dueDate} onChange={(inputEvent) => updateDraft("dueDate", inputEvent.target.value)} required /></label>
+                  <label><span>Időpont / megjegyzés</span><input value={draft.dueLabel} onChange={(inputEvent) => updateDraft("dueLabel", inputEvent.target.value)} placeholder="pl. 18:00" /></label>
                   <label className="wide"><span>Ismétlődés</span><select value={draft.repeatRule} onChange={(inputEvent) => updateDraft("repeatRule", inputEvent.target.value as RepeatRule)}><option value="none">Nem ismétlődik</option><option value="daily">Naponta</option><option value="weekly">Hetente</option><option value="monthly">Havonta</option></select></label>
                 </div>}
 
@@ -1437,7 +1473,7 @@ function TodayView({
       {chores.length ? <section className="compact-list">
         {chores.slice(0, 3).map((chore) => <button type="button" className={chore.done ? "compact-task done" : "compact-task"} key={chore.id} onClick={() => onToggleChore(chore.id)}>
           <span className={`task-check ${chore.done ? "checked" : ""}`}><IonIcon icon={checkmark} /></span>
-          <span className="task-copy"><strong>{chore.title}</strong><small>{chore.assignee} · {chore.dueLabel}</small></span>
+          <span className="task-copy"><strong>{chore.title}</strong><small className={!chore.done && chore.dueDate < localIsoDate() ? "overdue-label" : ""}>{chore.assignee} · {choreDueText(chore)}</small></span>
           {chore.recurring && <IonIcon className="repeat-icon" icon={repeatOutline} />}
         </button>)}
       </section> : <EmptyMini text="Még nincs kiosztott házimunka." />}
@@ -1496,7 +1532,8 @@ function CalendarView({ events, onEdit, onDelete }: { events: FamilyEvent[]; onE
 }
 
 function ChoresView({ actor, familyMembers, chores, progress, onToggle, onClaim, onEdit, onDelete }: { actor: Actor | null; familyMembers: FamilyMember[]; chores: Chore[]; progress: number; onToggle: (id: number) => void; onClaim: (id: number) => void; onEdit: (chore: Chore) => void; onDelete: (id: number, title: string) => void }) {
-  const activeChores = chores.filter((chore) => !chore.done);
+  const today = localIsoDate();
+  const activeChores = chores.filter((chore) => !chore.done && chore.dueDate <= today);
   const workloadByPerson = new Map<string, { name: string; tone: Tone; count: number }>();
 
   familyMembers.forEach((member) => {
@@ -1520,7 +1557,7 @@ function ChoresView({ actor, familyMembers, chores, progress, onToggle, onClaim,
       <ScreenHeader eyebrow="Közös teendők" title="Házimunka" />
       <section className="progress-card">
         <div className="progress-ring" style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}><span><strong>{progress}%</strong><small>kész</small></span></div>
-        <div><span className="eyebrow">Mai haladás</span><h2>{chores.length ? "Egészen jól álltok!" : "Kezdhetjük tiszta lappal"}</h2><p>{chores.length ? `Még ${chores.filter((item) => !item.done).length} dolog van hátra a nyugodt estéhez.` : "A + gombbal vehettek fel új feladatot."}</p></div>
+        <div><span className="eyebrow">Mai haladás</span><h2>{chores.length ? "Egészen jól álltok!" : "Kezdhetjük tiszta lappal"}</h2><p>{activeChores.length ? `Még ${activeChores.length} dolog van hátra a nyugodt estéhez.` : chores.length ? "A mára esedékes feladatok elkészültek." : "A + gombbal vehettek fel új feladatot."}</p></div>
       </section>
       <section className="workload-card" aria-labelledby="workload-title">
         <div className="workload-heading">
@@ -1539,7 +1576,7 @@ function ChoresView({ actor, familyMembers, chores, progress, onToggle, onClaim,
         {chores.map((chore) => <article className={chore.done ? "chore-card done" : "chore-card"} key={chore.id}>
           <button type="button" className="chore-toggle" onClick={() => onToggle(chore.id)}>
             <span className={`room-marker ${chore.tone}`}>{chore.room.slice(0, 1)}</span>
-            <span className="chore-copy"><strong>{chore.title}</strong><small>{chore.room} · {chore.dueLabel}</small><span className="assignee-pill">{chore.assignee}{chore.repeatRule === "daily" ? " · naponta" : chore.repeatRule === "weekly" ? " · hetente" : chore.repeatRule === "monthly" ? " · havonta" : ""}</span></span>
+            <span className="chore-copy"><strong>{chore.title}</strong><small className={!chore.done && chore.dueDate < localIsoDate() ? "overdue-label" : ""}>{chore.room} · {choreDueText(chore)}</small><span className="assignee-pill">{chore.assignee}{chore.repeatRule === "daily" ? " · naponta" : chore.repeatRule === "weekly" ? " · hetente" : chore.repeatRule === "monthly" ? " · havonta" : ""}</span></span>
             <span className={`big-check ${chore.done ? "checked" : ""}`}><IonIcon icon={checkmark} /></span>
           </button>
           <div className="item-actions"><button type="button" className="edit-item" onClick={() => onEdit(chore)} aria-label={`${chore.title} szerkesztése`}><IonIcon icon={createOutline} /></button><button type="button" className="delete-item" onClick={() => onDelete(chore.id, chore.title)} aria-label={`${chore.title} törlése`}><IonIcon icon={trashOutline} /></button></div>

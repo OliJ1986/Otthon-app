@@ -81,6 +81,7 @@ export const chores = pgTable("chores", {
   room: text("room").notNull().default("Otthon"),
   assignee: text("assignee").notNull().default("Közös"),
   dueLabel: text("due_label").notNull().default("Ma"),
+  dueDate: date("due_date", { mode: "string" }).notNull().default(sql`(now() AT TIME ZONE 'Europe/Budapest')::date`),
   repeatRule: text("repeat_rule").notNull().default("none"),
   done: boolean("done").notNull().default(false),
   completedOn: date("completed_on", { mode: "string" }),
@@ -88,7 +89,7 @@ export const chores = pgTable("chores", {
   createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("chores_due_idx").on(table.done, table.dueDate)]);
 
 export const shoppingItems = pgTable("shopping_items", {
   id: serial("id").primaryKey(),

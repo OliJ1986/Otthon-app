@@ -36,6 +36,22 @@ test("a családi aktivitások a másik felhasználónak szólnak, az esemény pe
   assert.match(reminders, /event:\$\{event\.id\}:\$\{occurrence\}:\$\{minutes\}/);
 });
 
+test("az elmaradt házimunka másnapra átkerül és az ismétlődő feladat új esedékességet kap", async () => {
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../drizzle/0003_conscious_luke_cage.sql", import.meta.url), "utf8");
+  const householdApi = await readFile(new URL("../app/api/household/route.ts", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app/OtthonApp.tsx", import.meta.url), "utf8");
+  assert.match(schema, /dueDate: date\("due_date"/);
+  assert.match(migration, /ALTER TABLE "chores" ADD COLUMN "due_date"/);
+  assert.match(migration, /WHEN "repeat_rule" = 'weekly'.*"completed_on" \+ 7/);
+  assert.match(householdApi, /function nextChoreDueDate/);
+  assert.match(householdApi, /due_date = \$\{dueDate\}/);
+  assert.match(householdApi, /left\.dueDate\.localeCompare\(right\.dueDate\)/);
+  assert.match(app, /Tegnapról áthozva/);
+  assert.match(app, /napja elmaradt/);
+  assert.match(app, /type="date" value=\{draft\.dueDate\}/);
+});
+
 test("a cron az események mellett a napi árforrásokat is feldolgozza", async () => {
   const packageJson = await json("package.json");
   assert.equal(packageJson.scripts["reminders:send"], "node scripts/run-jobs.mjs");
