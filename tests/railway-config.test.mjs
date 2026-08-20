@@ -123,6 +123,20 @@ test("a vonalkód egy lépésben terméket és árfigyelést hoz létre", async 
   assert.match(app, /facingMode: \{ ideal: "environment" \}/);
 });
 
+test("az Otthon 2.0 felület napszakos, sötét módban is olvasható és kíméli a mozgásérzékeny felhasználókat", async () => {
+  const app = await readFile(new URL("../app/OtthonApp.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+  assert.match(app, /type DayPhase = "morning" \| "day" \| "evening" \| "night"/);
+  assert.match(app, /app-shell phase-\$\{phase\}/);
+  assert.match(app, /function greeting/);
+  assert.match(styles, /Otthon 2\.0/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(styles, /backdrop-filter: blur\(30px\) saturate\(190%\)/);
+  assert.match(layout, /prefers-color-scheme: dark/);
+});
+
 test("a példakörnyezet nem tartalmaz valódi titkot", async () => {
   const example = await readFile(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(example, /DATABASE_URL=/);

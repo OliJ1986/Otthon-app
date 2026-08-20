@@ -1,17 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#8B72FF"/>
-      <stop offset="1" stop-color="#5332C8"/>
+    <linearGradient id="bg" x1="72" y1="36" x2="444" y2="486" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A48BFF"/><stop offset=".48" stop-color="#7357FF"/><stop offset="1" stop-color="#4925AF"/>
     </linearGradient>
-    <linearGradient id="roof" x1="155" y1="129" x2="357" y2="382" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#EEE9FF"/>
+    <linearGradient id="home" x1="165" y1="151" x2="345" y2="390" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#EEE9FF"/>
     </linearGradient>
+    <linearGradient id="door" x1="225" y1="300" x2="295" y2="415" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8C73FF"/><stop offset="1" stop-color="#6341D8"/>
+    </linearGradient>
+    <filter id="shadow" x="80" y="90" width="352" height="368" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#2E176E" flood-opacity=".24"/>
+    </filter>
   </defs>
-  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
-  <circle cx="403" cy="92" r="94" fill="#FFFFFF" fill-opacity=".08"/>
-  <path d="M112 248 241 132a23 23 0 0 1 30 0l129 116c16 14 6 40-15 40h-14v91c0 20-16 36-36 36H177c-20 0-36-16-36-36v-91h-14c-21 0-31-26-15-40Z" fill="url(#roof)"/>
-  <path d="M222 415v-91c0-19 15-34 34-34s34 15 34 34v91" fill="#6D4AFF"/>
-  <circle cx="347" cy="213" r="25" fill="#FF8C84"/>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="420" cy="72" r="122" fill="#FFFFFF" fill-opacity=".09"/>
+  <circle cx="70" cy="447" r="132" fill="#45D1AE" fill-opacity=".1"/>
+  <path d="M62 151c96-72 238-103 391-43" fill="none" stroke="#FFFFFF" stroke-opacity=".1" stroke-width="24" stroke-linecap="round"/>
+  <g filter="url(#shadow)">
+    <path d="M117 250 238 141a27 27 0 0 1 36 0l121 109c17 15 6 43-17 43h-10v91c0 22-18 40-40 40H184c-22 0-40-18-40-40v-91h-10c-23 0-34-28-17-43Z" fill="url(#home)"/>
+    <path d="M221 424v-91c0-20 16-36 35-36s35 16 35 36v91" fill="url(#door)"/>
+    <circle cx="346" cy="217" r="29" fill="#FF8B82"/>
+    <circle cx="346" cy="217" r="17" fill="#FFB0A9"/>
+  </g>
+  <path d="M220 238c10-11 25-11 35 0l1 1 1-1c10-11 25-11 35 0 11 12 10 31-2 42l-34 30-34-30c-12-11-13-30-2-42Z" fill="#7357FF" fill-opacity=".16"/>
 </svg>

@@ -13,6 +13,7 @@ Saját családi használatra készült, iPhone-ra optimalizált PWA. Egy helyen 
 - saját családi belépés, ChatGPT-fiók nélkül;
 - tulajdonosi és külön felnőtt-fiókok, gyerekprofilok;
 - telepíthető iPhone PWA és esemény-emlékeztető push értesítések.
+- napszakhoz igazodó, üveghatású Otthon 2.0 felület automatikus sötét móddal és csökkentett mozgás támogatással.
 
 ## Helyi indítás
 

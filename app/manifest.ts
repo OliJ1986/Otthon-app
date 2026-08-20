@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Naptár, házimunka és bevásárlólista egy helyen.",
     start_url: "/",
     display: "standalone",
-    background_color: "#f6f4fb",
-    theme_color: "#6d4aff",
+    background_color: "#f8f5ff",
+    theme_color: "#7357ff",
     orientation: "portrait",
     icons: [
       { src: "/app-icon-192.png", sizes: "192x192", type: "image/png" },

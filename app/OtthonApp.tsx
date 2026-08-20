@@ -36,6 +36,7 @@ type AddMode = "event" | "chore" | "shopping";
 type Tone = "violet" | "blue" | "coral" | "mint" | "orange" | "green" | "pink" | "yellow";
 type EventKind = "medical" | "school" | "other";
 type RepeatRule = "none" | "daily" | "weekly" | "monthly";
+type DayPhase = "morning" | "day" | "evening" | "night";
 
 type FamilyEvent = {
   id: number;
@@ -200,6 +201,22 @@ function weekDates(anchorIso: string) {
 function displayFirstName(actor: Actor | null) {
   const source = actor?.displayName || actor?.username || "Olivér";
   return source.split(/[\s@]/)[0] || "Olivér";
+}
+
+function dayPhase(date = new Date()): DayPhase {
+  const hour = date.getHours();
+  if (hour < 6 || hour >= 22) return "night";
+  if (hour < 10) return "morning";
+  if (hour < 18) return "day";
+  return "evening";
+}
+
+function greeting(date = new Date()) {
+  const phase = dayPhase(date);
+  if (phase === "morning") return "Jó reggelt";
+  if (phase === "day") return "Szia";
+  if (phase === "evening") return "Szép estét";
+  return "Jó éjszakát";
 }
 
 function formatForint(value: string | number | null | undefined) {
@@ -453,6 +470,7 @@ function SearchOfferList({ offers }: { offers: PriceSearchOffer[] }) {
 
 export default function OtthonApp() {
   const [tab, setTab] = useState<Tab>("today");
+  const [phase, setPhase] = useState<DayPhase>(() => dayPhase());
   const [events, setEvents] = useState<FamilyEvent[]>([]);
   const [chores, setChores] = useState<Chore[]>([]);
   const [shopping, setShopping] = useState<ShoppingItem[]>([]);
@@ -561,6 +579,11 @@ export default function OtthonApp() {
     const timeout = window.setTimeout(() => setToast(""), 2200);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setPhase(dayPhase()), 5 * 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const today = localIsoDate();
   const todayChores = chores.filter((item) => item.done ? item.completedOn === today : item.dueDate <= today);
@@ -1036,7 +1059,7 @@ export default function OtthonApp() {
 
   return (
     <IonApp>
-      <div className="app-shell">
+      <div className={`app-shell phase-${phase}`} data-tab={tab}>
         {error && <button type="button" className="error-banner" onClick={() => void loadHousehold()}>{error} · Újrapróbálom</button>}
         <main className="app-content" aria-busy={!ready || syncing}>
           {authMode !== "authenticated" ? (
@@ -1445,7 +1468,7 @@ function TodayView({
   return (
     <div className="screen today-screen">
       <ScreenHeader
-        eyebrow={longDate()} title={`Szia, ${displayFirstName(actor)}!`}
+        eyebrow={longDate()} title={`${greeting()}, ${displayFirstName(actor)}!`}
         action={<div className="header-actions"><button type="button" className={`icon-button notification-button ${notificationsEnabled ? "enabled" : ""}`} onClick={() => void onEnableNotifications()} aria-label={notificationsEnabled ? "Értesítések bekapcsolva" : "Értesítések bekapcsolása"}><IonIcon icon={notificationsOutline} />{!notificationsEnabled && <span />}</button><button type="button" className="account-button" onClick={onAccount} aria-label="Bejelentkezett felhasználó"><span>{displayFirstName(actor).slice(0, 1).toUpperCase()}</span><i className={syncing ? "syncing" : ""} /></button></div>}
       />
 
