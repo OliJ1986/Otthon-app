@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSql } from "@/db";
 import { getSessionUser, sameOrigin } from "@/lib/auth";
-import { sendPushToUser } from "@/lib/push";
+import { PushPayload, sendPushToOtherUsers, sendPushToUser } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -107,6 +107,11 @@ function normalizeEvent(row: EventRow): EventRow {
     startTime: row.startTime.slice(0, 5),
     departureTime: row.departureTime?.slice(0, 5) || null,
   };
+}
+
+async function sendActivityPush(actorId: number, payload: PushPayload) {
+  await sendPushToOtherUsers(actorId, payload)
+    .catch((error) => console.error("Household activity push failed", error));
 }
 
 export async function GET(request: NextRequest) {
@@ -233,6 +238,12 @@ export async function POST(request: NextRequest) {
           tone, kind, repeat_rule AS "repeatRule",
           reminder_minutes AS "reminderMinutes", reminder_enabled AS "reminderEnabled"
       ` as unknown as EventRow[];
+      await sendActivityPush(actor.id, {
+        title: "Új esemény",
+        body: `${actor.displayName} felvette: ${title} · ${date} ${startTime}`,
+        url: "/",
+        tag: `event-created-${rows[0].id}`,
+      });
       return NextResponse.json({ record: normalizeEvent(rows[0]) }, { status: 201 });
     }
 
@@ -249,6 +260,12 @@ export async function POST(request: NextRequest) {
         RETURNING id, title, room, assignee, due_label AS "dueLabel",
           repeat_rule AS "repeatRule", done, completed_on::text AS "completedOn", tone
       ` as unknown as ChoreRow[];
+      await sendActivityPush(actor.id, {
+        title: "Új házimunka",
+        body: `${actor.displayName} felvette: ${title} · ${rows[0].assignee}`,
+        url: "/",
+        tag: `chore-created-${rows[0].id}`,
+      });
       return NextResponse.json({ record: { ...rows[0], recurring: repeatRule !== "none", done: false } }, { status: 201 });
     }
 
@@ -260,6 +277,12 @@ export async function POST(request: NextRequest) {
         VALUES (${name}, ${textValue(payload.quantity, "1 db", 40)}, ${textValue(payload.category, "Egyéb", 50)}, ${actor.id})
         RETURNING id, name, quantity, category, checked
       ` as unknown as ShoppingRow[];
+      await sendActivityPush(actor.id, {
+        title: "Új a bevásárlólistán",
+        body: `${actor.displayName} hozzáadta: ${rows[0].name} · ${rows[0].quantity}`,
+        url: "/",
+        tag: `shopping-created-${rows[0].id}`,
+      });
       return NextResponse.json({ record: rows[0] }, { status: 201 });
     }
     return invalid("Érvénytelen elemtípus.");
@@ -377,10 +400,29 @@ export async function PATCH(request: NextRequest) {
       const rows = await sql`SELECT repeat_rule AS "repeatRule" FROM chores WHERE id = ${id} LIMIT 1` as unknown as Array<{ repeatRule: RepeatRule }>;
       const current = rows[0];
       if (!current) return NextResponse.json({ error: "A feladat nem található." }, { status: 404 });
+      const nextDone = payload.done === true;
+      let changed: Array<{ title: string }>;
       if (current.repeatRule !== "none") {
-        await sql`UPDATE chores SET completed_on = ${payload.done === true ? todayInBudapest() : null}, updated_at = now() WHERE id = ${id}`;
+        const completedOn = nextDone ? todayInBudapest() : null;
+        changed = await sql`
+          UPDATE chores SET completed_on = ${completedOn}, updated_at = now()
+          WHERE id = ${id} AND completed_on IS DISTINCT FROM ${completedOn}
+          RETURNING title
+        ` as unknown as Array<{ title: string }>;
       } else {
-        await sql`UPDATE chores SET done = ${payload.done === true}, updated_at = now() WHERE id = ${id}`;
+        changed = await sql`
+          UPDATE chores SET done = ${nextDone}, updated_at = now()
+          WHERE id = ${id} AND done IS DISTINCT FROM ${nextDone}
+          RETURNING title
+        ` as unknown as Array<{ title: string }>;
+      }
+      if (nextDone && changed[0]) {
+        await sendActivityPush(actor.id, {
+          title: "Házimunka elkészült",
+          body: `${actor.displayName} elkészítette: ${changed[0].title}`,
+          url: "/",
+          tag: `chore-completed-${id}-${todayInBudapest()}`,
+        });
       }
       return NextResponse.json({ ok: true });
     }

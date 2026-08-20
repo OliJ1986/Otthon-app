@@ -20,6 +20,22 @@ test("az emlékeztető külön, befejeződő cron feladat", async () => {
   assert.equal(config.deploy.restartPolicyType, "NEVER");
 });
 
+test("a családi aktivitások a másik felhasználónak szólnak, az esemény pedig mindig jelez 15 perccel előtte", async () => {
+  const householdApi = await readFile(new URL("../app/api/household/route.ts", import.meta.url), "utf8");
+  const priceApi = await readFile(new URL("../app/api/prices/route.ts", import.meta.url), "utf8");
+  const push = await readFile(new URL("../lib/push.ts", import.meta.url), "utf8");
+  const reminders = await readFile(new URL("../scripts/send-reminders.mjs", import.meta.url), "utf8");
+  assert.match(push, /sendPushToOtherUsers/);
+  assert.match(push, /WHERE user_id <> \$\{excludedUserId\}/);
+  assert.match(householdApi, /title: "Új esemény"/);
+  assert.match(householdApi, /title: "Új házimunka"/);
+  assert.match(householdApi, /title: "Új a bevásárlólistán"/);
+  assert.match(householdApi, /title: "Házimunka elkészült"/);
+  assert.match(priceApi, /title: "Új a bevásárlólistán"/);
+  assert.match(reminders, /new Set\(\[15,/);
+  assert.match(reminders, /event:\$\{event\.id\}:\$\{occurrence\}:\$\{minutes\}/);
+});
+
 test("a cron az események mellett a napi árforrásokat is feldolgozza", async () => {
   const packageJson = await json("package.json");
   assert.equal(packageJson.scripts["reminders:send"], "node scripts/run-jobs.mjs");

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSql } from "@/db";
 import { getSessionUser, sameOrigin } from "@/lib/auth";
+import { sendPushToOtherUsers } from "@/lib/push";
 import {
   ExternalProduct,
   findRetailOffers,
@@ -602,6 +603,13 @@ export async function POST(request: NextRequest) {
         return { ...items[0], priceWatch: { id: watches[0].id, productId, productName: product.productName, targetPrice: targetNumber } };
       });
       if (!result) return NextResponse.json({ error: "A beolvasott termék már nem található." }, { status: 404 });
+      const addedItem = result as unknown as { id: number; name: string; quantity: string };
+      await sendPushToOtherUsers(actor.id, {
+        title: "Új a bevásárlólistán",
+        body: `${actor.displayName} hozzáadta: ${addedItem.name} · ${addedItem.quantity}`,
+        url: "/",
+        tag: `shopping-created-${addedItem.id}`,
+      }).catch((error) => console.error("Shopping activity push failed", error));
       return NextResponse.json({ record: result }, { status: 201 });
     }
 

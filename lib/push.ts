@@ -1,7 +1,7 @@
 import webpush from "web-push";
 import { getSql } from "@/db";
 
-type PushPayload = {
+export type PushPayload = {
   title: string;
   body: string;
   url?: string;
@@ -15,7 +15,9 @@ type PushSubscriptionRow = {
   auth: string;
 };
 
-export async function sendPushToUser(userId: number, payload: PushPayload) {
+type Sql = ReturnType<typeof getSql>;
+
+async function sendPushToSubscriptions(sql: Sql, subscriptions: PushSubscriptionRow[], payload: PushPayload) {
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
   const subject = process.env.VAPID_SUBJECT || "mailto:admin@example.invalid";
@@ -26,13 +28,6 @@ export async function sendPushToUser(userId: number, payload: PushPayload) {
   }
 
   webpush.setVapidDetails(subject, publicKey, privateKey);
-  const sql = getSql();
-  const subscriptions = await sql`
-    SELECT id, endpoint, p256dh, auth
-    FROM push_subscriptions
-    WHERE user_id = ${userId}
-  ` as unknown as PushSubscriptionRow[];
-
   const message = JSON.stringify({
     ...payload,
     url: payload.url || "/",
@@ -56,4 +51,24 @@ export async function sendPushToUser(userId: number, payload: PushPayload) {
       console.error("Push send failed", subscription.id, error);
     }
   }));
+}
+
+export async function sendPushToUser(userId: number, payload: PushPayload) {
+  const sql = getSql();
+  const subscriptions = await sql`
+    SELECT id, endpoint, p256dh, auth
+    FROM push_subscriptions
+    WHERE user_id = ${userId}
+  ` as unknown as PushSubscriptionRow[];
+  await sendPushToSubscriptions(sql, subscriptions, payload);
+}
+
+export async function sendPushToOtherUsers(excludedUserId: number, payload: PushPayload) {
+  const sql = getSql();
+  const subscriptions = await sql`
+    SELECT id, endpoint, p256dh, auth
+    FROM push_subscriptions
+    WHERE user_id <> ${excludedUserId}
+  ` as unknown as PushSubscriptionRow[];
+  await sendPushToSubscriptions(sql, subscriptions, payload);
 }

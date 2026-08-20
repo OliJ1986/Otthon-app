@@ -79,9 +79,10 @@ async function main() {
   const toDate = addDays(localToday, 3);
   const events = await sql`
     SELECT id, date::text AS date, start_time::text AS "startTime", title, person, place,
-      repeat_rule AS "repeatRule", reminder_minutes AS "reminderMinutes"
+      repeat_rule AS "repeatRule", reminder_minutes AS "reminderMinutes",
+      reminder_enabled AS "reminderEnabled"
     FROM family_events
-    WHERE reminder_enabled = true AND date <= ${toDate}
+    WHERE date <= ${toDate}
   `;
   const subscriptions = await sql`SELECT id, endpoint, p256dh, auth FROM push_subscriptions`;
   if (!subscriptions.length) return;
@@ -89,37 +90,44 @@ async function main() {
   for (const event of events) {
     for (const occurrence of occurrences(event, fromDate, toDate)) {
       const startsAt = budapestDateTime(occurrence, event.startTime);
-      const notifyAt = new Date(startsAt.getTime() - Number(event.reminderMinutes) * 60_000);
-      if (notifyAt < new Date(now.getTime() - 150_000) || notifyAt >= windowEnd) continue;
-      const notificationKey = `event:${event.id}:${occurrence}:${event.reminderMinutes}`;
-      const inserted = await sql`
-        INSERT INTO notification_log (notification_key)
-        VALUES (${notificationKey})
-        ON CONFLICT (notification_key) DO NOTHING
-        RETURNING id
-      `;
-      if (!inserted.length) continue;
+      const reminderMinutes = [...new Set([15, ...(event.reminderEnabled ? [Number(event.reminderMinutes)] : [])])];
+      for (const minutes of reminderMinutes) {
+        const notifyAt = new Date(startsAt.getTime() - minutes * 60_000);
+        if (notifyAt < new Date(now.getTime() - 150_000) || notifyAt >= windowEnd) continue;
+        const notificationKey = `event:${event.id}:${occurrence}:${minutes}`;
+        const inserted = await sql`
+          INSERT INTO notification_log (notification_key)
+          VALUES (${notificationKey})
+          ON CONFLICT (notification_key) DO NOTHING
+          RETURNING id
+        `;
+        if (!inserted.length) continue;
 
-      const payload = JSON.stringify({
-        title: event.person && event.person !== "Család" ? `${event.person} · ${event.title}` : event.title,
-        body: `${occurrence === localToday ? "Ma" : "Holnap"} ${event.startTime.slice(0, 5)}${event.place ? ` · ${event.place}` : ""}`,
-        url: "/",
-        tag: notificationKey,
-      });
-      await Promise.all(subscriptions.map(async (subscription) => {
-        try {
-          await webpush.sendNotification({
-            endpoint: subscription.endpoint,
-            keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-          }, payload, { TTL: 86_400 });
-        } catch (error) {
-          if (error?.statusCode === 404 || error?.statusCode === 410) {
-            await sql`DELETE FROM push_subscriptions WHERE id = ${subscription.id}`;
-            return;
+        const timing = minutes === 15 ? "15 perc múlva"
+          : minutes === 30 ? "30 perc múlva"
+            : minutes === 120 ? "2 óra múlva"
+              : occurrence === localToday ? "Ma" : "Holnap";
+        const payload = JSON.stringify({
+          title: event.person && event.person !== "Család" ? `${event.person} · ${event.title}` : event.title,
+          body: `${timing} · ${event.startTime.slice(0, 5)}${event.place ? ` · ${event.place}` : ""}`,
+          url: "/",
+          tag: notificationKey,
+        });
+        await Promise.all(subscriptions.map(async (subscription) => {
+          try {
+            await webpush.sendNotification({
+              endpoint: subscription.endpoint,
+              keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+            }, payload, { TTL: 86_400 });
+          } catch (error) {
+            if (error?.statusCode === 404 || error?.statusCode === 410) {
+              await sql`DELETE FROM push_subscriptions WHERE id = ${subscription.id}`;
+              return;
+            }
+            console.error("Push send failed", subscription.id, error);
           }
-          console.error("Push send failed", subscription.id, error);
-        }
-      }));
+        }));
+      }
     }
   }
 }
