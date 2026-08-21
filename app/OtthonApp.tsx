@@ -1692,7 +1692,7 @@ function WeatherSheet({
     <div className="sheet-heading"><div><span className="eyebrow">7 napos előrejelzés</span><h2 id="weather-title">{weather?.location.name || "Tatabánya"}</h2></div><button type="button" className="icon-button subtle" onClick={onClose} aria-label="Bezárás"><IonIcon icon={close} /></button></div>
 
     <div className="weather-current">
-      <IonIcon icon={currentMeta.icon} />
+      <span className="weather-current-icon"><IonIcon icon={currentMeta.icon} /></span>
       <div><strong>{weather ? temperature(weather.current.temperature) : "–"}</strong><span>{currentMeta.label}</span></div>
       <dl><div><dt>Hőérzet</dt><dd>{weather ? temperature(weather.current.apparentTemperature) : "–"}</dd></div><div><dt>Szél</dt><dd>{weather && Number.isFinite(weather.current.windSpeed) ? `${Math.round(weather.current.windSpeed)} km/h` : "–"}</dd></div></dl>
     </div>
