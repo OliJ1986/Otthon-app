@@ -17,28 +17,21 @@ import {
   close,
   cloudDoneOutline,
   createOutline,
-  cubeOutline,
-  fileTrayFullOutline,
   homeOutline,
   locationOutline,
   medicalOutline,
-  micOutline,
-  navigateOutline,
   notificationsOutline,
   pricetagOutline,
   repeatOutline,
   searchOutline,
   schoolOutline,
   sparklesOutline,
-  swapHorizontalOutline,
-  timeOutline,
   trashOutline,
-  warningOutline,
 } from "ionicons/icons";
 
 setupIonicReact({ mode: "ios" });
 
-type Tab = "today" | "calendar" | "chores" | "shopping" | "storage";
+type Tab = "today" | "calendar" | "chores" | "shopping";
 type AddMode = "event" | "chore" | "shopping";
 type Tone = "violet" | "blue" | "coral" | "mint" | "orange" | "green" | "pink" | "yellow";
 type EventKind = "medical" | "school" | "other";
@@ -84,55 +77,6 @@ type ShoppingItem = {
   priceWatch?: PriceWatchSummary | null;
 };
 
-type StoredItem = {
-  id: number;
-  name: string;
-  location: string;
-  note: string | null;
-  aliases: string | null;
-  status: "stored" | "missing";
-  storedBy: string;
-  updatedBy: string;
-  storedAt: string;
-  lastFoundAt: string | null;
-  updatedAt: string;
-  historyCount: number;
-};
-
-type StoredItemHistory = {
-  id: number;
-  action: "stored" | "moved" | "found" | "missing";
-  fromLocation: string | null;
-  toLocation: string | null;
-  note: string | null;
-  actorName: string;
-  createdAt: string;
-};
-
-type StorageDraft = {
-  itemId: number | null;
-  name: string;
-  location: string;
-  note: string;
-  quickText: string;
-};
-
-type SpeechRecognitionEventLike = {
-  results: ArrayLike<{ 0: { transcript: string } }>;
-};
-
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-};
-
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
-
 type PriceWatchSummary = { id: number; productId: string; productName: string | null; targetPrice: string | null; bestPrice: string | null; bestChain: string | null; dataDate: string | null; source?: string | null };
 type PriceOffer = { source: "gvh" | "tesco" | "lidl" | "manual"; chainName: string; maxPrice: string; maxUnitPrice: string | null; storeCount: number; promotionPrice: string | null; promotionLabel: string | null; validUntil: string | null; observedOn: string; locationLabel: string | null };
 type PriceWatchDetail = { id: number; shoppingItemId: number; productId: string; productName: string; categoryName: string; unit: string; packageSize: string; targetPrice: string | null; notifyOnDrop: boolean; dataDate: string | null; offers: PriceOffer[]; history: Array<{ date: string; maxPrice: string }> };
@@ -156,7 +100,6 @@ type HouseholdResponse = {
   chores: Chore[];
   shopping: ShoppingItem[];
   familyMembers: FamilyMember[];
-  storedItems: StoredItem[];
   syncedAt: string;
 };
 
@@ -197,7 +140,6 @@ const navItems: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "calendar", label: "Naptár", icon: calendarClearOutline },
   { id: "chores", label: "Házimunka", icon: checkmarkDoneCircleOutline },
   { id: "shopping", label: "Bevásárlás", icon: cartOutline },
-  { id: "storage", label: "Hol van?", icon: cubeOutline },
 ];
 
 const toneOptions: Array<{ value: Tone; label: string }> = [
@@ -337,74 +279,6 @@ function initialDraft(): Draft {
 
 function folded(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("hu-HU");
-}
-
-function storageWordStem(value: string) {
-  const suffixes = [
-    "jaitok", "jeitek", "aink", "eink", "atok", "etek", "otok", "ötök",
-    "ban", "ben", "ból", "ből", "hoz", "hez", "höz", "nak", "nek", "nál", "nél",
-    "ra", "re", "ról", "ről", "tól", "től", "val", "vel", "ba", "be",
-    "akat", "eket", "okat", "öket", "ait", "eit", "ját", "jét",
-    "ak", "ek", "ok", "ök", "at", "et", "ot", "öt", "t",
-  ].map(folded).sort((left, right) => right.length - left.length);
-  let word = folded(value).replace(/[^a-z0-9]/g, "");
-  for (let pass = 0; pass < 2; pass += 1) {
-    const suffix = suffixes.find((candidate) => word.endsWith(candidate) && word.length - candidate.length >= 4);
-    if (!suffix) break;
-    word = word.slice(0, -suffix.length);
-  }
-  return word;
-}
-
-function storageTokens(value: string) {
-  return folded(value)
-    .split(/[^a-z0-9]+/)
-    .map(storageWordStem)
-    .filter((token) => token.length >= 2);
-}
-
-function storedItemSearchScore(item: StoredItem, query: string) {
-  const normalizedQuery = folded(query).trim();
-  if (!normalizedQuery) return 1;
-  const name = folded(item.name);
-  const haystack = folded([item.name, item.location, item.aliases || "", item.note || ""].join(" "));
-  const queryTokens = storageTokens(query);
-  const itemTokens = storageTokens(haystack);
-  const allTokensMatch = queryTokens.every((queryToken) => itemTokens.some((itemToken) => (
-    itemToken.includes(queryToken) || queryToken.includes(itemToken)
-  )));
-  if (!allTokensMatch) return 0;
-  if (name === normalizedQuery) return 100;
-  if (name.includes(normalizedQuery)) return 80;
-  if (haystack.includes(normalizedQuery)) return 60;
-  return 30 + queryTokens.length;
-}
-
-function parseStorageQuickText(value: string) {
-  const cleaned = value.trim().replace(/[.!?]+$/, "").replace(/\s{2,}/g, " ");
-  const patterns = [
-    /^(?:a|az)\s+(.+?)\s+(?:a|az)\s+(.+?)\s+(?:tettem|raktam|elraktam|eltettem|betettem)$/i,
-    /^(?:elraktam|eltettem|betettem|raktam|tettem)\s+(?:a|az)\s+(.+?)\s+(?:a|az)\s+(.+)$/i,
-    /^(.+?)\s+(?:helye|helye:|ide:)\s+(.+)$/i,
-  ];
-  for (const pattern of patterns) {
-    const match = cleaned.match(pattern);
-    if (match) return { name: match[1].trim(), location: match[2].trim() };
-  }
-  const divider = cleaned.match(/^(.+?)\s+(?:itt van|ide került|helye:)\s+(.+)$/i);
-  return divider
-    ? { name: divider[1].trim(), location: divider[2].trim() }
-    : { name: cleaned, location: "" };
-}
-
-function storageDate(value: string) {
-  const date = new Date(value);
-  const today = localIsoDate();
-  const dateIso = localIsoDate(date);
-  const day = dateIso === today ? "ma"
-    : dateIso === addDays(today, -1) ? "tegnap"
-      : new Intl.DateTimeFormat("hu-HU", { month: "short", day: "numeric" }).format(date);
-  return `${day}, ${new Intl.DateTimeFormat("hu-HU", { hour: "2-digit", minute: "2-digit" }).format(date)}`;
 }
 
 function nextWeekdayIso(day: number) {
@@ -600,16 +474,6 @@ export default function OtthonApp() {
   const [events, setEvents] = useState<FamilyEvent[]>([]);
   const [chores, setChores] = useState<Chore[]>([]);
   const [shopping, setShopping] = useState<ShoppingItem[]>([]);
-  const [storedItems, setStoredItems] = useState<StoredItem[]>([]);
-  const [storageQuery, setStorageQuery] = useState("");
-  const [storageSheetOpen, setStorageSheetOpen] = useState(false);
-  const [storageDraft, setStorageDraft] = useState<StorageDraft>({ itemId: null, name: "", location: "", note: "", quickText: "" });
-  const [storageHistoryItem, setStorageHistoryItem] = useState<StoredItem | null>(null);
-  const [storageHistory, setStorageHistory] = useState<StoredItemHistory[]>([]);
-  const [storageHistoryBusy, setStorageHistoryBusy] = useState(false);
-  const [dictating, setDictating] = useState<"search" | "quick" | null>(null);
-  const storageSearchRef = useRef<HTMLInputElement>(null);
-  const storageQuickRef = useRef<HTMLInputElement>(null);
   const [actor, setActor] = useState<Actor | null>(null);
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [authMode, setAuthMode] = useState<AuthMode>("checking");
@@ -647,7 +511,6 @@ export default function OtthonApp() {
       setEvents(data.events);
       setChores(data.chores);
       setShopping(data.shopping);
-      setStoredItems(data.storedItems || []);
       setFamilyMembers(data.familyMembers || []);
       setAuthMode("authenticated");
       setError("");
@@ -672,13 +535,6 @@ export default function OtthonApp() {
         .then((subscription) => setNotificationsEnabled(Boolean(subscription)))
         .catch(() => undefined);
     }
-  }, []);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      if (new URLSearchParams(window.location.search).get("tab") === "storage") setTab("storage");
-    });
-    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
@@ -982,7 +838,6 @@ export default function OtthonApp() {
     setEvents([]);
     setChores([]);
     setShopping([]);
-    setStoredItems([]);
     setFamilyMembers([]);
     setAuthMode("login");
     setReady(true);
@@ -1033,127 +888,6 @@ export default function OtthonApp() {
     setDraft(initialDraft());
     setQuickText("");
     setSheetOpen(true);
-  }
-
-  function openStorageAdd() {
-    setStorageDraft({ itemId: null, name: "", location: "", note: "", quickText: "" });
-    setStorageSheetOpen(true);
-  }
-
-  function openStorageMove(item: StoredItem) {
-    setStorageDraft({ itemId: item.id, name: item.name, location: "", note: "", quickText: "" });
-    setStorageSheetOpen(true);
-  }
-
-  function closeStorageSheet() {
-    if (saving) return;
-    setStorageSheetOpen(false);
-    setStorageDraft({ itemId: null, name: "", location: "", note: "", quickText: "" });
-  }
-
-  function applyStorageQuickCapture() {
-    if (!storageDraft.quickText.trim()) return;
-    const parsed = parseStorageQuickText(storageDraft.quickText);
-    setStorageDraft((current) => ({ ...current, name: parsed.name, location: parsed.location }));
-    setToast(parsed.location ? "Kitöltöttem — ellenőrizd a tárgyat és a helyet" : "A tárgyat felismertem, add meg a helyét");
-  }
-
-  function replaceStoredItem(record: StoredItem) {
-    setStoredItems((items) => [record, ...items.filter((item) => item.id !== record.id)]);
-  }
-
-  async function submitStoredItem(event: FormEvent) {
-    event.preventDefault();
-    if (!storageDraft.name.trim() || !storageDraft.location.trim() || saving) return;
-    setSaving(true);
-    try {
-      const { record } = await apiRequest<{ record: StoredItem }>(
-        storageDraft.itemId ? "PATCH" : "POST",
-        storageDraft.itemId
-          ? { id: storageDraft.itemId, action: "move", location: storageDraft.location, note: storageDraft.note }
-          : {
-            name: storageDraft.name,
-            location: storageDraft.location,
-            note: storageDraft.note,
-            aliases: storageDraft.quickText,
-          },
-        "/api/storage",
-      );
-      replaceStoredItem(record);
-      setToast(storageDraft.itemId ? "Az új hely elmentve" : "Megjegyeztem, hova tetted");
-      setStorageSheetOpen(false);
-      setStorageDraft({ itemId: null, name: "", location: "", note: "", quickText: "" });
-    } catch (failure) {
-      showFailure(failure);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function markStoredItem(item: StoredItem, action: "found" | "missing") {
-    try {
-      const { record } = await apiRequest<{ record: StoredItem }>("PATCH", { id: item.id, action }, "/api/storage");
-      replaceStoredItem(record);
-      setToast(action === "found" ? "Megtalálva — a helyet megerősítettem" : "Jeleztem, hogy nincs a helyén");
-    } catch (failure) {
-      showFailure(failure);
-    }
-  }
-
-  async function openStorageHistory(item: StoredItem) {
-    setStorageHistoryItem(item);
-    setStorageHistory([]);
-    setStorageHistoryBusy(true);
-    try {
-      const result = await apiRequest<{ item: StoredItem; history: StoredItemHistory[] }>("GET", undefined, `/api/storage?itemId=${item.id}`);
-      setStorageHistoryItem(result.item);
-      setStorageHistory(result.history);
-    } catch (failure) {
-      showFailure(failure);
-      setStorageHistoryItem(null);
-    } finally {
-      setStorageHistoryBusy(false);
-    }
-  }
-
-  async function deleteStoredItem(item: StoredItem) {
-    if (!window.confirm(`Biztosan törlöd a teljes helyelőzménnyel együtt: ${item.name}?`)) return;
-    try {
-      await apiRequest("DELETE", { id: item.id }, "/api/storage");
-      setStoredItems((items) => items.filter((candidate) => candidate.id !== item.id));
-      setToast("Tárgy törölve");
-    } catch (failure) {
-      showFailure(failure);
-    }
-  }
-
-  function startStorageDictation(target: "search" | "quick") {
-    const speechWindow = window as typeof window & {
-      SpeechRecognition?: SpeechRecognitionConstructor;
-      webkitSpeechRecognition?: SpeechRecognitionConstructor;
-    };
-    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
-    if (!Recognition) {
-      (target === "search" ? storageSearchRef : storageQuickRef).current?.focus();
-      setToast("Koppints az iPhone billentyűzet mikrofonjára");
-      return;
-    }
-    const recognition = new Recognition();
-    recognition.lang = "hu-HU";
-    recognition.interimResults = false;
-    recognition.continuous = false;
-    recognition.onresult = (resultEvent) => {
-      const transcript = resultEvent.results[0]?.[0]?.transcript?.trim() || "";
-      if (target === "search") setStorageQuery(transcript);
-      else setStorageDraft((current) => ({ ...current, quickText: transcript }));
-    };
-    recognition.onerror = () => {
-      setDictating(null);
-      setToast("A diktálás nem indult el — használd a billentyűzet mikrofonját");
-    };
-    recognition.onend = () => setDictating(null);
-    setDictating(target);
-    recognition.start();
   }
 
   function closeSheet() {
@@ -1337,7 +1071,7 @@ export default function OtthonApp() {
               {tab === "today" && (
                 <TodayView
                   actor={actor} events={visibleEvents} chores={todayChores} shopping={shopping}
-                  remainingChores={remainingChores} remainingShopping={remainingShopping} storedItemCount={storedItems.length}
+                  remainingChores={remainingChores} remainingShopping={remainingShopping}
                   syncing={syncing} onTab={setTab} onToggleChore={toggleChore}
                   notificationsEnabled={notificationsEnabled} onEnableNotifications={enableNotifications}
                   onAccount={() => setAccountOpen(true)}
@@ -1358,28 +1092,13 @@ export default function OtthonApp() {
                   onScan={openBarcodeScanner}
                 />
               )}
-              {tab === "storage" && (
-                <StorageView
-                  items={storedItems}
-                  query={storageQuery}
-                  onQuery={setStorageQuery}
-                  searchRef={storageSearchRef}
-                  dictating={dictating === "search"}
-                  onDictate={() => startStorageDictation("search")}
-                  onAdd={openStorageAdd}
-                  onMove={openStorageMove}
-                  onMark={markStoredItem}
-                  onHistory={openStorageHistory}
-                  onDelete={deleteStoredItem}
-                />
-              )}
             </>
           )}
         </main>
 
         {ready && authMode === "authenticated" && <button
           type="button" className="fab" aria-label="Új elem hozzáadása"
-          onClick={() => tab === "storage" ? openStorageAdd() : openAdd(tab === "calendar" ? "event" : tab === "chores" ? "chore" : "shopping")}
+          onClick={() => openAdd(tab === "calendar" ? "event" : tab === "chores" ? "chore" : "shopping")}
         ><IonIcon icon={add} /></button>}
 
         {ready && authMode === "authenticated" && <nav className="tab-bar" aria-label="Fő navigáció">
@@ -1458,71 +1177,6 @@ export default function OtthonApp() {
                 <button type="submit" className="primary-button" disabled={!draft.title.trim() || saving}><IonIcon icon={editingItemId ? checkmark : add} /> {saving ? "Mentés…" : editingItemId ? "Módosítások mentése" : "Hozzáadás"}</button>
                 {editingItemId && <button type="button" className="sheet-delete-button" disabled={saving} onClick={() => void deleteEditingItem()}><IonIcon icon={trashOutline} /> {addMode === "event" ? "Esemény" : addMode === "chore" ? "Feladat" : "Tétel"} törlése</button>}
               </form>
-            </section>
-          </div>
-        )}
-
-        {storageSheetOpen && (
-          <div className="sheet-backdrop" role="presentation" onMouseDown={closeStorageSheet}>
-            <section className="add-sheet storage-sheet" role="dialog" aria-modal="true" aria-labelledby="storage-add-title" onMouseDown={(event) => event.stopPropagation()}>
-              <div className="sheet-handle" />
-              <div className="sheet-heading">
-                <div><span className="eyebrow">{storageDraft.itemId ? "Új hely" : "Hova tettem?"}</span><h2 id="storage-add-title">{storageDraft.itemId ? storageDraft.name : "Jegyezzük meg"}</h2></div>
-                <button type="button" className="icon-button subtle" onClick={closeStorageSheet} aria-label="Bezárás" disabled={saving}><IonIcon icon={close} /></button>
-              </div>
-              {!storageDraft.itemId && <>
-                <div className="storage-dictation">
-                  <span className="storage-dictation-icon"><IonIcon icon={micOutline} /></span>
-                  <label>
-                    <span>Mondd el egy mondatban</span>
-                    <input
-                      ref={storageQuickRef}
-                      value={storageDraft.quickText}
-                      onChange={(event) => setStorageDraft((current) => ({ ...current, quickText: event.target.value }))}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          applyStorageQuickCapture();
-                        }
-                      }}
-                      placeholder="A gyerekek útlevelét a felső fiókba tettem"
-                      autoFocus
-                    />
-                  </label>
-                  <button type="button" className={dictating === "quick" ? "listening" : ""} onClick={() => startStorageDictation("quick")} aria-label="Diktálás indítása"><IonIcon icon={micOutline} /></button>
-                </div>
-                <button type="button" className="storage-parse-button" onClick={applyStorageQuickCapture} disabled={!storageDraft.quickText.trim()}>Kitöltöm a mondatból</button>
-                <p className="smart-capture-help">Ha a külön diktálás nem indul, az iPhone billentyűzetének mikrofonja mindig használható.</p>
-              </>}
-              <form className="add-form storage-form" onSubmit={submitStoredItem}>
-                <label className="full-field"><span>Mit tettél el?</span><input value={storageDraft.name} onChange={(event) => setStorageDraft((current) => ({ ...current, name: event.target.value }))} placeholder="pl. gyerekek útlevelei" readOnly={Boolean(storageDraft.itemId)} required /></label>
-                <label className="full-field"><span>{storageDraft.itemId ? "Hova került most?" : "Hova tetted?"}</span><input value={storageDraft.location} onChange={(event) => setStorageDraft((current) => ({ ...current, location: event.target.value }))} placeholder="pl. hálószobai szekrény, felső fiók" required /></label>
-                <label className="full-field"><span>Megjegyzés <small>opcionális</small></span><input value={storageDraft.note} onChange={(event) => setStorageDraft((current) => ({ ...current, note: event.target.value }))} placeholder="pl. a kék irattartóban" /></label>
-                <button type="submit" className="primary-button" disabled={!storageDraft.name.trim() || !storageDraft.location.trim() || saving}><IonIcon icon={storageDraft.itemId ? swapHorizontalOutline : fileTrayFullOutline} /> {saving ? "Mentés…" : storageDraft.itemId ? "Új hely mentése" : "Megjegyzem"}</button>
-              </form>
-            </section>
-          </div>
-        )}
-
-        {storageHistoryItem && (
-          <div className="sheet-backdrop" role="presentation" onMouseDown={() => !storageHistoryBusy && setStorageHistoryItem(null)}>
-            <section className="add-sheet storage-history-sheet" role="dialog" aria-modal="true" aria-labelledby="storage-history-title" onMouseDown={(event) => event.stopPropagation()}>
-              <div className="sheet-handle" />
-              <div className="sheet-heading">
-                <div><span className="eyebrow">Helyelőzmények</span><h2 id="storage-history-title">{storageHistoryItem.name}</h2></div>
-                <button type="button" className="icon-button subtle" onClick={() => setStorageHistoryItem(null)} aria-label="Bezárás"><IonIcon icon={close} /></button>
-              </div>
-              <div className="history-current-location"><IonIcon icon={navigateOutline} /><div><span>Jelenlegi hely</span><strong>{storageHistoryItem.location}</strong></div></div>
-              {storageHistoryBusy ? <div className="price-loading"><span className="loading-orb" />Előzmények betöltése…</div> : <div className="storage-timeline">
-                {storageHistory.map((entry) => <article key={entry.id} className={`storage-history-entry ${entry.action}`}>
-                  <span><IonIcon icon={entry.action === "missing" ? warningOutline : entry.action === "moved" ? swapHorizontalOutline : entry.action === "found" ? checkmarkCircle : fileTrayFullOutline} /></span>
-                  <div><strong>{entry.action === "stored" ? "Eltéve" : entry.action === "moved" ? "Áthelyezve" : entry.action === "found" ? "Megtalálva" : "Nem volt a helyén"}</strong>
-                    {entry.action === "moved" ? <p>{entry.fromLocation} → {entry.toLocation}</p> : <p>{entry.toLocation || entry.fromLocation}</p>}
-                    {entry.note && <small>{entry.note}</small>}
-                    <time>{entry.actorName} · {storageDate(entry.createdAt)}</time>
-                  </div>
-                </article>)}
-              </div>}
             </section>
           </div>
         )}
@@ -1801,11 +1455,11 @@ function ScreenHeader({ eyebrow, title, action }: { eyebrow: string; title: stri
 }
 
 function TodayView({
-  actor, events, chores, shopping, remainingChores, remainingShopping, storedItemCount, syncing, notificationsEnabled,
+  actor, events, chores, shopping, remainingChores, remainingShopping, syncing, notificationsEnabled,
   onTab, onToggleChore, onEnableNotifications, onAccount, onAddEvent, onEditEvent,
 }: {
   actor: Actor | null; events: FamilyEvent[]; chores: Chore[]; shopping: ShoppingItem[];
-  remainingChores: number; remainingShopping: number; storedItemCount: number; syncing: boolean; notificationsEnabled: boolean;
+  remainingChores: number; remainingShopping: number; syncing: boolean; notificationsEnabled: boolean;
   onTab: (tab: Tab) => void; onToggleChore: (id: number) => void; onEnableNotifications: () => Promise<void>; onAccount: () => void; onAddEvent: () => void; onEditEvent: (event: FamilyEvent) => void;
 }) {
   const nowKey = `${localIsoDate()}${new Date().toTimeString().slice(0, 5)}`;
@@ -1832,11 +1486,10 @@ function TodayView({
         <IonIcon icon={calendarClearOutline} /><span><strong>Még nincs közelgő időpont</strong><small>Koppints ide az első esemény felvételéhez.</small></span><IonIcon icon={chevronForward} />
       </button>}
 
-      <section className="glance-grid has-storage" aria-label="Mai összefoglaló">
+      <section className="glance-grid" aria-label="Mai összefoglaló">
         <button type="button" className="glance-card violet" onClick={() => onTab("calendar")}><IonIcon icon={calendarClearOutline} /><strong>{upcomingCount}</strong><span>közelgő program</span></button>
         <button type="button" className="glance-card coral" onClick={() => onTab("chores")}><IonIcon icon={checkmarkDoneCircleOutline} /><strong>{remainingChores}</strong><span>mai teendő</span></button>
         <button type="button" className="glance-card mint" onClick={() => onTab("shopping")}><IonIcon icon={bagHandleOutline} /><strong>{remainingShopping}</strong><span>megvásárolandó</span></button>
-        <button type="button" className="glance-card blue" onClick={() => onTab("storage")}><IonIcon icon={cubeOutline} /><strong>{storedItemCount}</strong><span>eltett tárgy</span></button>
       </section>
 
       <SectionTitle title="Mai házimunka" meta={`${chores.length - remainingChores}/${chores.length} kész`} onClick={() => onTab("chores")} />
@@ -1954,67 +1607,6 @@ function ChoresView({ actor, familyMembers, chores, progress, onToggle, onClaim,
         </article>)}
         {!chores.length && <div className="empty-state"><IonIcon icon={checkmarkDoneCircleOutline} /><h2>Nincs elmaradás</h2><p>A + gombbal vehettek fel új házimunkát.</p></div>}
       </section>
-    </div>
-  );
-}
-
-function StorageView({
-  items, query, onQuery, searchRef, dictating, onDictate, onAdd, onMove, onMark, onHistory, onDelete,
-}: {
-  items: StoredItem[];
-  query: string;
-  onQuery: (value: string) => void;
-  searchRef: React.RefObject<HTMLInputElement | null>;
-  dictating: boolean;
-  onDictate: () => void;
-  onAdd: () => void;
-  onMove: (item: StoredItem) => void;
-  onMark: (item: StoredItem, action: "found" | "missing") => Promise<void>;
-  onHistory: (item: StoredItem) => Promise<void>;
-  onDelete: (item: StoredItem) => Promise<void>;
-}) {
-  const results = items
-    .map((item) => ({ item, score: storedItemSearchScore(item, query) }))
-    .filter((result) => result.score > 0)
-    .sort((left, right) => right.score - left.score
-      || Number(right.item.status === "missing") - Number(left.item.status === "missing")
-      || right.item.updatedAt.localeCompare(left.item.updatedAt))
-    .map((result) => result.item);
-
-  return (
-    <div className="screen storage-screen">
-      <ScreenHeader eyebrow="Családi emlékezet" title="Hova tettem?" action={<span className="count-badge storage-count">{items.length}</span>} />
-      <div className="storage-search">
-        <IonIcon icon={searchOutline} />
-        <input ref={searchRef} value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Mit keresel? pl. útlevél vagy fúrógép" aria-label="Eltett tárgy keresése" />
-        {query && <button type="button" className="storage-search-clear" onClick={() => onQuery("")} aria-label="Keresés törlése"><IonIcon icon={close} /></button>}
-        <button type="button" className={dictating ? "storage-mic listening" : "storage-mic"} onClick={onDictate} aria-label="Keresés diktálása"><IonIcon icon={micOutline} /></button>
-      </div>
-      <p className="storage-search-help"><IonIcon icon={sparklesOutline} /> Ragozva is kereshetsz: az „útlevelet” és az „útlevelek” is működik.</p>
-      <button type="button" className="storage-quick-add" onClick={onAdd}><span><IonIcon icon={fileTrayFullOutline} /></span><div><strong>Megjegyzem, hova tettem</strong><small>Diktálással vagy beírással</small></div><IonIcon icon={chevronForward} /></button>
-
-      <div className="storage-result-heading"><span>{query ? "Találatok" : "Legutóbb eltett tárgyak"}</span><strong>{results.length}</strong></div>
-      <section className="stored-item-list">
-        {results.map((item) => <article className={item.status === "missing" ? "stored-item-card missing" : "stored-item-card"} key={item.id}>
-          <div className="stored-item-top">
-            <span className="stored-item-icon"><IonIcon icon={item.status === "missing" ? warningOutline : cubeOutline} /></span>
-            <div><h2>{item.name}</h2><span>{item.status === "missing" ? "Nincs a megadott helyen" : "Elrakva"}</span></div>
-            <button type="button" className="delete-item" onClick={() => void onDelete(item)} aria-label={`${item.name} törlése`}><IonIcon icon={trashOutline} /></button>
-          </div>
-          <div className="stored-location"><IonIcon icon={navigateOutline} /><div><span>{item.status === "missing" ? "Megadott hely" : "Legutóbbi hely"}</span><strong>{item.location}</strong></div></div>
-          {item.note && <p className="stored-note">{item.note}</p>}
-          <p className="stored-meta"><IonIcon icon={timeOutline} /> {item.updatedBy} · {storageDate(item.updatedAt)}</p>
-          <div className="stored-actions">
-            <button type="button" className="move-stored-item" onClick={() => onMove(item)}><IonIcon icon={swapHorizontalOutline} /> Áthelyezem</button>
-            <button type="button" onClick={() => void onHistory(item)}><IonIcon icon={timeOutline} /> Előzmények</button>
-          </div>
-          <div className="stored-confirmation">
-            <button type="button" className="stored-found" onClick={() => void onMark(item, "found")}><IonIcon icon={checkmarkCircle} /> Megtaláltam</button>
-            {item.status !== "missing" && <button type="button" className="stored-missing" onClick={() => void onMark(item, "missing")}><IonIcon icon={warningOutline} /> Nincs ott</button>}
-          </div>
-        </article>)}
-      </section>
-      {!results.length && <div className="empty-state storage-empty"><IonIcon icon={query ? searchOutline : cubeOutline} /><h2>{query ? "Nem találtam" : "Még nincs eltett tárgy"}</h2><p>{query ? "Próbáld rövidebben vagy másik néven." : "A + gombbal mondd el, mit hova tettél."}</p></div>}
     </div>
   );
 }
