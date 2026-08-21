@@ -10,6 +10,7 @@ Saját családi használatra készült, iPhone-ra optimalizált PWA. Egy helyen 
 - vonalkódos termékfelismerés és többforrású árfigyelés (GVH, Tesco, Lidl, saját árak);
 - céláras értesítés, Clubcard-/akciós érvényesség és napi ártörténet;
 - gyors, szöveges bevitel magyar dátum- és időfelismeréssel;
+- „Hova tettem?” családi tárgykereső diktálással, ragozást elviselő kereséssel és helyelőzményekkel;
 - saját családi belépés, ChatGPT-fiók nélkül;
 - tulajdonosi és külön felnőtt-fiókok, gyerekprofilok;
 - telepíthető iPhone PWA és esemény-emlékeztető push értesítések.
