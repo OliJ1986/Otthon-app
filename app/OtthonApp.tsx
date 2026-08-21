@@ -15,18 +15,27 @@ import {
   chevronBack,
   chevronForward,
   close,
+  cloudOutline,
   cloudDoneOutline,
+  cloudyOutline,
   createOutline,
   homeOutline,
   locationOutline,
   medicalOutline,
   notificationsOutline,
+  partlySunnyOutline,
   pricetagOutline,
+  rainyOutline,
   repeatOutline,
   searchOutline,
   schoolOutline,
+  snowOutline,
   sparklesOutline,
+  sunnyOutline,
+  thermometerOutline,
+  thunderstormOutline,
   trashOutline,
+  waterOutline,
 } from "ionicons/icons";
 
 setupIonicReact({ mode: "ios" });
@@ -101,6 +110,37 @@ type HouseholdResponse = {
   shopping: ShoppingItem[];
   familyMembers: FamilyMember[];
   syncedAt: string;
+};
+
+type WeatherLocation = {
+  name: string;
+  country: string;
+  admin1: string;
+  latitude: number;
+  longitude: number;
+  timezone: string;
+};
+
+type WeatherDay = {
+  date: string;
+  weatherCode: number;
+  temperatureMax: number;
+  temperatureMin: number;
+  precipitationProbability: number;
+};
+
+type WeatherForecast = {
+  location: WeatherLocation;
+  current: {
+    time: string;
+    temperature: number;
+    apparentTemperature: number;
+    isDay: boolean;
+    weatherCode: number;
+    windSpeed: number;
+  };
+  daily: WeatherDay[];
+  refreshedAt: string;
 };
 
 type Draft = {
@@ -178,6 +218,28 @@ function longDate(dateIso = localIsoDate()) {
     month: "long",
     day: "numeric",
   }).format(dateFromIso(dateIso)));
+}
+
+function shortWeekday(dateIso: string, index: number) {
+  if (index === 0) return "Ma";
+  if (index === 1) return "Holnap";
+  return capitalize(new Intl.DateTimeFormat("hu-HU", { weekday: "short" }).format(dateFromIso(dateIso)).replace(".", ""));
+}
+
+function weatherMeta(code: number) {
+  if (code === 0) return { label: "Derült", icon: sunnyOutline };
+  if (code === 1 || code === 2) return { label: "Gyengén felhős", icon: partlySunnyOutline };
+  if (code === 3) return { label: "Borult", icon: cloudyOutline };
+  if (code === 45 || code === 48) return { label: "Ködös", icon: cloudOutline };
+  if (code >= 51 && code <= 57) return { label: "Szitálás", icon: waterOutline };
+  if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return { label: "Eső", icon: rainyOutline };
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return { label: "Havazás", icon: snowOutline };
+  if (code >= 95) return { label: "Zivatar", icon: thunderstormOutline };
+  return { label: "Változó", icon: partlySunnyOutline };
+}
+
+function temperature(value: number) {
+  return Number.isFinite(value) ? `${Math.round(value)}°` : "–";
 }
 
 function monthYear(dateIso: string) {
@@ -502,6 +564,13 @@ export default function OtthonApp() {
   const [scanError, setScanError] = useState("");
   const [manualStore, setManualStore] = useState("Aldi");
   const [manualPrice, setManualPrice] = useState("");
+  const [weather, setWeather] = useState<WeatherForecast | null>(null);
+  const [weatherOpen, setWeatherOpen] = useState(false);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherBusy, setWeatherBusy] = useState(false);
+  const [weatherQuery, setWeatherQuery] = useState("");
+  const [weatherLocations, setWeatherLocations] = useState<WeatherLocation[]>([]);
+  const [weatherMessage, setWeatherMessage] = useState("");
 
   const loadHousehold = useCallback(async (silent = false) => {
     if (!silent) setSyncing(true);
@@ -525,6 +594,19 @@ export default function OtthonApp() {
     } finally {
       setReady(true);
       setSyncing(false);
+    }
+  }, []);
+
+  const loadWeather = useCallback(async () => {
+    setWeatherLoading(true);
+    try {
+      const data = await apiRequest<WeatherForecast>("GET", undefined, "/api/weather");
+      setWeather(data);
+      setWeatherMessage("");
+    } catch (failure) {
+      setWeatherMessage(failure instanceof Error ? failure.message : "Az időjárás most nem tölthető be.");
+    } finally {
+      setWeatherLoading(false);
     }
   }, []);
 
@@ -573,6 +655,16 @@ export default function OtthonApp() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [authMode, loadHousehold]);
+
+  useEffect(() => {
+    if (authMode !== "authenticated") return;
+    const initialLoad = window.requestAnimationFrame(() => void loadWeather());
+    const interval = window.setInterval(() => void loadWeather(), 30 * 60_000);
+    return () => {
+      window.cancelAnimationFrame(initialLoad);
+      window.clearInterval(interval);
+    };
+  }, [authMode, loadWeather]);
 
   useEffect(() => {
     if (!toast) return;
@@ -839,6 +931,8 @@ export default function OtthonApp() {
     setChores([]);
     setShopping([]);
     setFamilyMembers([]);
+    setWeather(null);
+    setWeatherOpen(false);
     setAuthMode("login");
     setReady(true);
   }
@@ -879,6 +973,39 @@ export default function OtthonApp() {
       setToast("Az értesítések bekapcsolva");
     } catch (failure) {
       showFailure(failure);
+    }
+  }
+
+  async function searchWeatherCities() {
+    const query = weatherQuery.trim();
+    if (query.length < 2 || weatherBusy) return;
+    setWeatherBusy(true);
+    setWeatherMessage("");
+    try {
+      const result = await apiRequest<{ locations: WeatherLocation[] }>("GET", undefined, `/api/weather?q=${encodeURIComponent(query)}`);
+      setWeatherLocations(result.locations);
+      if (!result.locations.length) setWeatherMessage("Nem találtam ilyen várost.");
+    } catch (failure) {
+      setWeatherMessage(failure instanceof Error ? failure.message : "A városkeresés nem sikerült.");
+    } finally {
+      setWeatherBusy(false);
+    }
+  }
+
+  async function selectWeatherCity(location: WeatherLocation) {
+    if (weatherBusy) return;
+    setWeatherBusy(true);
+    setWeatherMessage("");
+    try {
+      const data = await apiRequest<WeatherForecast>("PATCH", { location }, "/api/weather");
+      setWeather(data);
+      setWeatherQuery("");
+      setWeatherLocations([]);
+      setToast(`${location.name} időjárása beállítva`);
+    } catch (failure) {
+      setWeatherMessage(failure instanceof Error ? failure.message : "A város mentése nem sikerült.");
+    } finally {
+      setWeatherBusy(false);
     }
   }
 
@@ -1076,6 +1203,7 @@ export default function OtthonApp() {
                   notificationsEnabled={notificationsEnabled} onEnableNotifications={enableNotifications}
                   onAccount={() => setAccountOpen(true)}
                   onAddEvent={() => openAdd("event")} onEditEvent={openEditEvent}
+                  weather={weather} weatherLoading={weatherLoading} onOpenWeather={() => setWeatherOpen(true)}
                 />
               )}
               {tab === "calendar" && <CalendarView events={visibleEvents} onEdit={openEditEvent} onDelete={(id, title) => deleteItem("event", id, title)} />}
@@ -1223,6 +1351,24 @@ export default function OtthonApp() {
                 {!priceBusy && <button type="button" className="manual-watch-button" onClick={() => void createManualPriceWatch()}><IonIcon icon={pricetagOutline} /> Saját árfigyelés ehhez a tételhez</button>}
               </>}
             </section>
+          </div>
+        )}
+
+        {weatherOpen && (
+          <div className="sheet-backdrop" role="presentation" onMouseDown={() => !weatherBusy && setWeatherOpen(false)}>
+            <WeatherSheet
+              weather={weather}
+              loading={weatherLoading}
+              busy={weatherBusy}
+              query={weatherQuery}
+              locations={weatherLocations}
+              message={weatherMessage}
+              onQuery={(value) => { setWeatherQuery(value); setWeatherLocations([]); setWeatherMessage(""); }}
+              onSearch={searchWeatherCities}
+              onSelect={selectWeatherCity}
+              onReload={loadWeather}
+              onClose={() => setWeatherOpen(false)}
+            />
           </div>
         )}
 
@@ -1457,10 +1603,12 @@ function ScreenHeader({ eyebrow, title, action }: { eyebrow: string; title: stri
 function TodayView({
   actor, events, chores, shopping, remainingChores, remainingShopping, syncing, notificationsEnabled,
   onTab, onToggleChore, onEnableNotifications, onAccount, onAddEvent, onEditEvent,
+  weather, weatherLoading, onOpenWeather,
 }: {
   actor: Actor | null; events: FamilyEvent[]; chores: Chore[]; shopping: ShoppingItem[];
   remainingChores: number; remainingShopping: number; syncing: boolean; notificationsEnabled: boolean;
   onTab: (tab: Tab) => void; onToggleChore: (id: number) => void; onEnableNotifications: () => Promise<void>; onAccount: () => void; onAddEvent: () => void; onEditEvent: (event: FamilyEvent) => void;
+  weather: WeatherForecast | null; weatherLoading: boolean; onOpenWeather: () => void;
 }) {
   const nowKey = `${localIsoDate()}${new Date().toTimeString().slice(0, 5)}`;
   const nextEvent = events.find((item) => `${item.date}${item.startTime}` >= nowKey);
@@ -1492,6 +1640,8 @@ function TodayView({
         <button type="button" className="glance-card mint" onClick={() => onTab("shopping")}><IonIcon icon={bagHandleOutline} /><strong>{remainingShopping}</strong><span>megvásárolandó</span></button>
       </section>
 
+      <WeatherCard weather={weather} loading={weatherLoading} onOpen={onOpenWeather} />
+
       <SectionTitle title="Mai házimunka" meta={`${chores.length - remainingChores}/${chores.length} kész`} onClick={() => onTab("chores")} />
       {chores.length ? <section className="compact-list">
         {chores.slice(0, 3).map((chore) => <button type="button" className={chore.done ? "compact-task done" : "compact-task"} key={chore.id} onClick={() => onToggleChore(chore.id)}>
@@ -1510,6 +1660,59 @@ function TodayView({
       <p className="demo-note"><IonIcon icon={cloudDoneOutline} /> Közös, automatikusan szinkronizált adatok</p>
     </div>
   );
+}
+
+function WeatherCard({ weather, loading, onOpen }: { weather: WeatherForecast | null; loading: boolean; onOpen: () => void }) {
+  const currentMeta = weatherMeta(weather?.current.weatherCode ?? -1);
+  const today = weather?.daily[0];
+  return <button type="button" className="weather-card" onClick={onOpen} aria-label="Részletes időjárás és városválasztás">
+    <div className="weather-card-main">
+      <span className="weather-symbol"><IonIcon icon={currentMeta.icon} /></span>
+      <div className="weather-place"><span><IonIcon icon={locationOutline} /> {weather?.location.name || "Tatabánya"}</span><strong>{loading && !weather ? "Időjárás betöltése…" : currentMeta.label}</strong><small>{today ? `Ma ${temperature(today.temperatureMax)} / ${temperature(today.temperatureMin)} · ${today.precipitationProbability}% eső` : "Koppints a részletekhez"}</small></div>
+      <div className="weather-now"><strong>{weather ? temperature(weather.current.temperature) : "–"}</strong><IonIcon icon={chevronForward} /></div>
+    </div>
+    {weather && <div className="weather-mini-days">{weather.daily.slice(1, 4).map((day, index) => {
+      const meta = weatherMeta(day.weatherCode);
+      return <span key={day.date}><small>{shortWeekday(day.date, index + 1)}</small><IonIcon icon={meta.icon} /><strong>{temperature(day.temperatureMax)}</strong></span>;
+    })}</div>}
+  </button>;
+}
+
+function WeatherSheet({
+  weather, loading, busy, query, locations, message, onQuery, onSearch, onSelect, onReload, onClose,
+}: {
+  weather: WeatherForecast | null; loading: boolean; busy: boolean; query: string;
+  locations: WeatherLocation[]; message: string; onQuery: (value: string) => void;
+  onSearch: () => Promise<void>; onSelect: (location: WeatherLocation) => Promise<void>;
+  onReload: () => Promise<void>; onClose: () => void;
+}) {
+  const currentMeta = weatherMeta(weather?.current.weatherCode ?? -1);
+  return <section className="add-sheet weather-sheet" role="dialog" aria-modal="true" aria-labelledby="weather-title" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="sheet-handle" />
+    <div className="sheet-heading"><div><span className="eyebrow">7 napos előrejelzés</span><h2 id="weather-title">{weather?.location.name || "Tatabánya"}</h2></div><button type="button" className="icon-button subtle" onClick={onClose} aria-label="Bezárás"><IonIcon icon={close} /></button></div>
+
+    <div className="weather-current">
+      <IonIcon icon={currentMeta.icon} />
+      <div><strong>{weather ? temperature(weather.current.temperature) : "–"}</strong><span>{currentMeta.label}</span></div>
+      <dl><div><dt>Hőérzet</dt><dd>{weather ? temperature(weather.current.apparentTemperature) : "–"}</dd></div><div><dt>Szél</dt><dd>{weather && Number.isFinite(weather.current.windSpeed) ? `${Math.round(weather.current.windSpeed)} km/h` : "–"}</dd></div></dl>
+    </div>
+
+    {loading && !weather ? <div className="weather-loading"><span className="loading-orb" />Előrejelzés betöltése…</div> : <div className="weather-days">
+      {(weather?.daily || []).map((day, index) => {
+        const meta = weatherMeta(day.weatherCode);
+        return <div key={day.date}><strong>{shortWeekday(day.date, index)}</strong><span><IonIcon icon={meta.icon} />{meta.label}</span><small><IonIcon icon={waterOutline} /> {day.precipitationProbability}%</small><b>{temperature(day.temperatureMax)} <i>{temperature(day.temperatureMin)}</i></b></div>;
+      })}
+    </div>}
+
+    <div className="weather-city-picker">
+      <div><span>Másik város</span><small>A választás minden családtagnál megjelenik.</small></div>
+      <form onSubmit={(event) => { event.preventDefault(); void onSearch(); }}><IonIcon icon={searchOutline} /><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="pl. Budapest vagy 2800" aria-label="Város keresése" /><button type="submit" disabled={busy || query.trim().length < 2}>Keresés</button></form>
+      {locations.length > 0 && <div className="weather-location-results">{locations.map((location) => <button type="button" key={`${location.name}-${location.latitude}-${location.longitude}`} onClick={() => void onSelect(location)} disabled={busy}><span><strong>{location.name}</strong><small>{[location.admin1, location.country].filter(Boolean).join(" · ")}</small></span><IonIcon icon={chevronForward} /></button>)}</div>}
+      {message && <p className="weather-message" role="status">{message}</p>}
+    </div>
+    <button type="button" className="weather-refresh" disabled={loading} onClick={() => void onReload()}><IonIcon icon={thermometerOutline} /> Előrejelzés frissítése</button>
+    <p className="weather-credit">Időjárási adatok: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a></p>
+  </section>;
 }
 
 function EmptyMini({ text }: { text: string }) {
