@@ -137,25 +137,17 @@ test("az Otthon 2.0 felület napszakos, sötét módban is olvasható és kímé
   assert.match(layout, /prefers-color-scheme: dark/);
 });
 
-test("a Hova tettem modul megőrzi az aktuális helyet és a teljes helyelőzményt", async () => {
+test("a kivezetett Hova tettem modul felülete, API-ja és táblái is eltűnnek", async () => {
   const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
-  const migration = await readFile(new URL("../drizzle/0004_lucky_avengers.sql", import.meta.url), "utf8");
-  const storageApi = await readFile(new URL("../app/api/storage/route.ts", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../drizzle/0005_icy_spirit.sql", import.meta.url), "utf8");
   const householdApi = await readFile(new URL("../app/api/household/route.ts", import.meta.url), "utf8");
   const app = await readFile(new URL("../app/OtthonApp.tsx", import.meta.url), "utf8");
-  assert.match(schema, /export const storedItems = pgTable/);
-  assert.match(schema, /export const storedItemHistory = pgTable/);
-  assert.match(migration, /CREATE TABLE "stored_items"/);
-  assert.match(migration, /CREATE TABLE "stored_item_history"/);
-  assert.match(storageApi, /action === "move"/);
-  assert.match(storageApi, /action === "found"/);
-  assert.match(storageApi, /action === "missing"/);
-  assert.match(storageApi, /sendPushToOtherUsers/);
-  assert.match(householdApi, /storedItems: storedItemRows/);
-  assert.match(app, /function storedItemSearchScore/);
-  assert.match(app, /function parseStorageQuickText/);
-  assert.match(app, /title="Hova tettem\?"/);
-  assert.match(app, /Koppints az iPhone billentyűzet mikrofonjára/);
+  assert.doesNotMatch(schema, /export const storedItems = pgTable/);
+  assert.doesNotMatch(schema, /export const storedItemHistory = pgTable/);
+  assert.match(migration, /DROP TABLE "stored_item_history" CASCADE/);
+  assert.match(migration, /DROP TABLE "stored_items" CASCADE/);
+  assert.doesNotMatch(householdApi, /storedItems|stored_items|stored_item_history/);
+  assert.doesNotMatch(app, /Hova tettem|Hol van\?|\/api\/storage|type Tab = .*storage/);
 });
 
 test("a példakörnyezet nem tartalmaz valódi titkot", async () => {
