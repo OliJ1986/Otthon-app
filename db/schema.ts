@@ -103,6 +103,43 @@ export const shoppingItems = pgTable("shopping_items", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const storedItems = pgTable(
+  "stored_items",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    location: text("location").notNull(),
+    note: text("note"),
+    aliases: text("aliases"),
+    status: text("status").notNull().default("stored"),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: integer("updated_by").references(() => users.id, { onDelete: "set null" }),
+    storedAt: timestamp("stored_at", { withTimezone: true }).notNull().defaultNow(),
+    lastFoundAt: timestamp("last_found_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("stored_items_name_idx").on(table.name),
+    index("stored_items_updated_idx").on(table.updatedAt),
+  ],
+);
+
+export const storedItemHistory = pgTable(
+  "stored_item_history",
+  {
+    id: serial("id").primaryKey(),
+    itemId: integer("item_id").notNull().references(() => storedItems.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    fromLocation: text("from_location"),
+    toLocation: text("to_location"),
+    note: text("note"),
+    actorId: integer("actor_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("stored_item_history_item_idx").on(table.itemId, table.createdAt)],
+);
+
 export const externalProducts = pgTable(
   "external_products",
   {
