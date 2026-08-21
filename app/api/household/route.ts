@@ -53,6 +53,20 @@ type ShoppingRow = {
     source: string | null;
   } | null;
 };
+type StoredItemRow = {
+  id: number;
+  name: string;
+  location: string;
+  note: string | null;
+  aliases: string | null;
+  status: "stored" | "missing";
+  storedBy: string;
+  updatedBy: string;
+  storedAt: string;
+  lastFoundAt: string | null;
+  updatedAt: string;
+  historyCount: number;
+};
 
 const tones = ["violet", "blue", "coral", "mint", "orange", "green", "pink", "yellow"];
 const eventKinds = ["medical", "school", "other"];
@@ -154,7 +168,7 @@ export async function GET(request: NextRequest) {
   if (!actor) return unauthorized();
   try {
     const sql = getSql();
-    const [eventRows, choreRows, shoppingRows, familyRows] = await Promise.all([
+    const [eventRows, choreRows, shoppingRows, familyRows, storedItemRows] = await Promise.all([
       sql`
         SELECT id, date::text AS date, start_time::text AS "startTime",
           departure_time::text AS "departureTime", title, person, driver, place,
@@ -219,6 +233,19 @@ export async function GET(request: NextRequest) {
         SELECT id, name, tone, member_type AS "memberType", sort_order AS "sortOrder"
         FROM family_members ORDER BY sort_order ASC, id ASC
       ` as unknown as Promise<Array<{ id: number; name: string; tone: string; memberType: string; sortOrder: number }>>,
+      sql`
+        SELECT item.id, item.name, item.location, item.note, item.aliases, item.status,
+          COALESCE(creator.display_name, 'Ismeretlen') AS "storedBy",
+          COALESCE(updater.display_name, creator.display_name, 'Ismeretlen') AS "updatedBy",
+          item.stored_at::text AS "storedAt",
+          item.last_found_at::text AS "lastFoundAt",
+          item.updated_at::text AS "updatedAt",
+          (SELECT count(*)::int FROM stored_item_history history WHERE history.item_id = item.id) AS "historyCount"
+        FROM stored_items item
+        LEFT JOIN users creator ON creator.id = item.created_by
+        LEFT JOIN users updater ON updater.id = item.updated_by
+        ORDER BY (item.status = 'missing') DESC, item.updated_at DESC, item.id DESC
+      ` as unknown as Promise<StoredItemRow[]>,
     ]);
     const today = todayInBudapest();
     const normalizedChores = choreRows
@@ -232,6 +259,7 @@ export async function GET(request: NextRequest) {
       chores: normalizedChores,
       shopping: shoppingRows,
       familyMembers: familyRows,
+      storedItems: storedItemRows,
       syncedAt: new Date().toISOString(),
     });
   } catch (error) {
