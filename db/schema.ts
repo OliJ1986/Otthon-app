@@ -214,6 +214,18 @@ export const jobState = pgTable("job_state", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const weatherSettings = pgTable("weather_settings", {
+  id: integer("id").primaryKey().default(1),
+  cityName: text("city_name").notNull().default("Tatabánya"),
+  countryName: text("country_name").notNull().default("Magyarország"),
+  adminArea: text("admin_area"),
+  latitude: numeric("latitude", { precision: 8, scale: 5 }).notNull().default("47.58494"),
+  longitude: numeric("longitude", { precision: 8, scale: 5 }).notNull().default("18.39325"),
+  timezone: text("timezone").notNull().default("Europe/Budapest"),
+  updatedBy: integer("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const pushSubscriptions = pgTable(
   "push_subscriptions",
   {

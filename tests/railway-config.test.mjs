@@ -137,6 +137,23 @@ test("az Otthon 2.0 felület napszakos, sötét módban is olvasható és kímé
   assert.match(layout, /prefers-color-scheme: dark/);
 });
 
+test("az időjárás Tatabányáról indul, hét napot mutat és közös városbeállítást ment", async () => {
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../drizzle/0006_weather_settings.sql", import.meta.url), "utf8");
+  const weatherApi = await readFile(new URL("../app/api/weather/route.ts", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app/OtthonApp.tsx", import.meta.url), "utf8");
+  assert.match(schema, /export const weatherSettings = pgTable\("weather_settings"/);
+  assert.match(migration, /CREATE TABLE "weather_settings"/);
+  assert.match(weatherApi, /name: "Tatabánya"/);
+  assert.match(weatherApi, /forecast_days: "7"/);
+  assert.match(weatherApi, /revalidate: 1_800/);
+  assert.match(weatherApi, /geocoding-api\.open-meteo\.com\/v1\/search/);
+  assert.match(weatherApi, /ON CONFLICT \(id\) DO UPDATE/);
+  assert.match(app, /function WeatherCard/);
+  assert.match(app, /function WeatherSheet/);
+  assert.match(app, /A választás minden családtagnál megjelenik/);
+});
+
 test("a kivezetett Hova tettem modul felülete, API-ja és táblái is eltűnnek", async () => {
   const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
   const migration = await readFile(new URL("../drizzle/0005_icy_spirit.sql", import.meta.url), "utf8");

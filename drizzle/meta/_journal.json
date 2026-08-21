@@ -43,6 +43,13 @@
       "when": 1787301730431,
       "tag": "0005_icy_spirit",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787330692832,
+      "tag": "0006_weather_settings",
+      "breakpoints": true
     }
   ]
 }
