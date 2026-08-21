@@ -400,9 +400,11 @@ ion-app { --background: transparent; background: transparent; }
 
 .weather-sheet { max-height: min(92dvh, 820px); }
 .weather-current { display: grid; grid-template-columns: 68px minmax(0, 1fr) auto; align-items: center; gap: 13px; margin-top: 17px; padding: 15px; border: 1px solid rgba(114,130,206,.12); border-radius: 22px; background: linear-gradient(135deg, #e9f5ff, #f5efff); }
-.weather-current > ion-icon { width: 68px; height: 68px; padding: 15px; border-radius: 21px; color: #5d70cb; background: rgba(255,255,255,.55); }
+.weather-current-icon { width: 68px; height: 68px; display: grid; place-items: center; border-radius: 21px; color: #5d70cb; background: rgba(255,255,255,.55); }
+.weather-current-icon ion-icon { font-size: 39px; }
+.weather-current > div { min-width: 0; }
 .weather-current > div strong, .weather-current > div span { display: block; }
-.weather-current > div strong { font-size: 34px; line-height: 1; letter-spacing: -.06em; }
+.weather-current > div strong { font-size: 34px; line-height: 1; letter-spacing: -.06em; white-space: nowrap; }
 .weather-current > div span { margin-top: 5px; color: #6b6480; font-size: 10px; font-weight: 700; }
 .weather-current dl { display: grid; gap: 8px; margin: 0; }
 .weather-current dl > div { text-align: right; }
@@ -1099,7 +1101,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .price-offer.best, .tracked-product, .scan-product { border-color: rgba(79,202,168,.15); background: rgba(34,112,91,.14); }
   .price-empty, .price-history, .search-offers-empty, .price-results .search-offers > div, .scan-code { background: rgba(255,255,255,.035); }
   .weather-current { border-color: rgba(255,255,255,.07); background: linear-gradient(135deg, rgba(40,68,91,.55), rgba(69,48,91,.5)); }
-  .weather-current > ion-icon { color: #9eb9ff; background: rgba(255,255,255,.05); }
+  .weather-current-icon { color: #9eb9ff; background: rgba(255,255,255,.05); }
   .weather-current > div span, .weather-days > div > span { color: #c0b8d1; }
   .weather-days > div, .weather-location-results > button { background: rgba(255,255,255,.03); }
   .weather-days > div > span ion-icon { color: #9eb9ff; }

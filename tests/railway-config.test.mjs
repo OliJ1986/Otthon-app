@@ -151,6 +151,7 @@ test("az időjárás Tatabányáról indul, hét napot mutat és közös városb
   assert.match(weatherApi, /ON CONFLICT \(id\) DO UPDATE/);
   assert.match(app, /function WeatherCard/);
   assert.match(app, /function WeatherSheet/);
+  assert.match(app, /weather-current-icon/);
   assert.match(app, /A választás minden családtagnál megjelenik/);
 });
 
